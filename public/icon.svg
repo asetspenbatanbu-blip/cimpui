@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="128" fill="#8A9A5B"/>
+  <circle cx="256" cy="256" r="200" fill="#FDFBF7" stroke="#E0DCCF" stroke-width="8"/>
+  <!-- Chef hat / Cupcake / Bakery motif -->
+  <path d="M190 290 C160 270 160 210 200 190 C210 140 270 130 300 160 C330 140 360 180 350 220 C370 240 360 280 322 290 Z" fill="#EAE7DC" stroke="#8A9A5B" stroke-width="12" stroke-linejoin="round"/>
+  <!-- Pastry details -->
+  <path d="M180 290 L332 290 L315 360 L197 360 Z" fill="#C04000" stroke="#C04000" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M210 320 L220 350 M256 315 L256 350 M302 320 L292 350" stroke="#FDFBF7" stroke-width="6" stroke-linecap="round"/>
+  <!-- Sparkles / Cherry -->
+  <circle cx="256" cy="190" r="18" fill="#C04000"/>
+  <circle cx="260" cy="186" r="5" fill="#FFFFFF"/>
+</svg>

@@ -1,0 +1,6 @@
+{
+  "name": "Dapur Mama RaraLita",
+  "description": "Aplikasi pesanan kue kering, bolu, roti, pizza dan gorengan khusus mobile.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
