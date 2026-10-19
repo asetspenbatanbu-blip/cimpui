@@ -181,7 +181,7 @@ export default function App() {
     const fetchHistory = async () => {
       try {
         const { data, error } = await supabase
-          .from('absenbk_orders')
+          .from('cimpui_orders')
           .select('*')
           .order('date', { ascending: false });
 
@@ -215,13 +215,13 @@ export default function App() {
 
     // Subscribe to realtime changes
     const channel = supabase
-      .channel('absenbk_orders_changes')
+      .channel('cimpui_orders_changes')
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'absenbk_orders'
+          table: 'cimpui_orders'
         },
         () => {
           fetchHistory();
@@ -454,7 +454,7 @@ export default function App() {
     // Save to Supabase (Background)
     const saveToDb = async () => {
       try {
-        const { error } = await supabase.from('absenbk_orders').upsert({
+        const { error } = await supabase.from('cimpui_orders').upsert({
           id: finalOrder.id,
           date: finalOrder.date,
           customer_name: finalOrder.customerName,
@@ -498,7 +498,7 @@ export default function App() {
 
     const removeFromDb = async () => {
       try {
-        const { error } = await supabase.from('absenbk_orders').delete().eq('id', orderId);
+        const { error } = await supabase.from('cimpui_orders').delete().eq('id', orderId);
         if (error) console.error("Supabase delete error:", error);
       } catch (err) {
         console.error("Failed to delete from supabase during edit", err);
@@ -519,7 +519,7 @@ export default function App() {
     try {
       // Hapus seluruh transaksi di Supabase
       const { error } = await supabase
-        .from('absenbk_orders')
+        .from('cimpui_orders')
         .delete()
         .neq('id', '___non_existent___');
 

@@ -9,7 +9,11 @@ import {
   CheckCircle2, 
   RotateCcw,
   Sparkles,
-  MapPin
+  MapPin,
+  Database,
+  Copy,
+  Check,
+  X
 } from 'lucide-react';
 import { AdminUser } from '../types';
 
@@ -20,6 +24,43 @@ interface PengaturanAdminProps {
   onOpenLocationModal?: () => void;
   totalLocations?: number;
 }
+
+export const SUPABASE_SQL_SCRIPT = `-- Skrip Pembuatan Tabel Pesanan Dapur Mama RaraLita
+create table if not exists public.cimpui_orders (
+  id text primary key,
+  date text not null,
+  customer_name text not null,
+  customer_location text default 'Batulicin',
+  total_items integer default 0,
+  items jsonb not null default '[]'::jsonb,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- Aktifkan Row Level Security (RLS)
+alter table public.cimpui_orders enable row level security;
+
+-- Kebijakan Akses Baca (SELECT) untuk Publik / Anon
+create policy "Allow public read access on cimpui_orders"
+  on public.cimpui_orders for select
+  using (true);
+
+-- Kebijakan Akses Tambah (INSERT) untuk Publik / Anon
+create policy "Allow public insert access on cimpui_orders"
+  on public.cimpui_orders for insert
+  with check (true);
+
+-- Kebijakan Akses Ubah (UPDATE) untuk Publik / Anon
+create policy "Allow public update access on cimpui_orders"
+  on public.cimpui_orders for update
+  using (true);
+
+-- Kebijakan Akses Hapus (DELETE) untuk Publik / Anon
+create policy "Allow public delete access on cimpui_orders"
+  on public.cimpui_orders for delete
+  using (true);
+
+-- Aktifkan Sinkronisasi Realtime
+alter publication supabase_realtime add table public.cimpui_orders;`;
 
 export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
   currentUser,
@@ -48,9 +89,23 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
   // Delete admin confirmation modal state
   const [adminToDelete, setAdminToDelete] = useState<string | null>(null);
 
+  // Supabase SQL Modal state
+  const [showSqlModal, setShowSqlModal] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
+
   useEffect(() => {
     localStorage.setItem('dapur_mama_admins', JSON.stringify(adminList));
   }, [adminList]);
+
+  const handleCopySql = async () => {
+    try {
+      await navigator.clipboard.writeText(SUPABASE_SQL_SCRIPT);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (err) {
+      console.error("Gagal menyalin SQL:", err);
+    }
+  };
 
   const handleAddAdmin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,7 +164,7 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
             <ShieldCheck className="text-[#8A9A5B]" /> Pengaturan & Admin
           </h2>
           <p className="text-[11px] text-gray-500">
-            Kelola data admin & akun sistem
+            Kelola data admin, database & akun sistem
           </p>
         </div>
         <button
@@ -122,7 +177,7 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
         </button>
       </div>
 
-      <div className="p-4 space-y-5">
+      <div className="p-4 space-y-4">
         {/* Card Profil Akun Saat Ini */}
         <div className="bg-white rounded-2xl p-4 shadow-xs border border-[#E0DCCF] flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -146,6 +201,40 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
                 Username: <code className="font-mono text-gray-600 font-semibold">@{currentUser.username}</code>
               </p>
             </div>
+          </div>
+        </div>
+
+        {/* Database Supabase Integration Status */}
+        <div className="bg-white rounded-2xl p-4 shadow-xs border border-[#E0DCCF]">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                <Database size={18} />
+              </div>
+              <div>
+                <h4 className="font-serif font-bold text-sm text-gray-800">
+                  Database Supabase Terhubung
+                </h4>
+                <p className="text-[11px] text-gray-500">
+                  Proyek: <strong className="text-gray-700">asetsmpn1btlcn</strong> (Tabel: <code className="font-mono text-emerald-700 font-bold">cimpui_orders</code>)
+                </p>
+              </div>
+            </div>
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Aktif
+            </span>
+          </div>
+
+          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between text-xs">
+            <span className="text-gray-500 text-[11px]">Skrip SQL Tabel <code className="font-mono text-gray-700 font-bold">cimpui_orders</code></span>
+            <button
+              onClick={() => setShowSqlModal(true)}
+              className="text-[#8A9A5B] font-bold text-xs hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              <Copy size={13} />
+              <span>Salin Skrip SQL</span>
+            </button>
           </div>
         </div>
 
@@ -348,6 +437,72 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
           </div>
         )}
       </div>
+
+      {/* Modal Skrip SQL Supabase */}
+      {showSqlModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-black/50 backdrop-blur-xs animate-in fade-in"
+            onClick={() => setShowSqlModal(false)}
+          />
+          <div className="relative bg-white rounded-3xl p-5 sm:p-6 max-w-lg w-full shadow-2xl border border-[#E0DCCF] z-10 animate-in zoom-in-95 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                  <Database size={17} />
+                </div>
+                <div>
+                  <h3 className="font-serif font-bold text-base text-gray-800">
+                    Skrip SQL Tabel Supabase
+                  </h3>
+                  <span className="text-[10px] text-gray-500">Tabel: public.cimpui_orders</span>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowSqlModal(false)}
+                className="p-1.5 text-gray-400 hover:text-gray-600 rounded-full bg-gray-100 cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-600 my-3 leading-relaxed shrink-0">
+              Buka menu <strong>SQL Editor</strong> di dashboard Supabase proyek <strong>asetsmpn1btlcn</strong>, lalu jalankan perintah berikut untuk membuat tabel dan izin publik:
+            </p>
+
+            <div className="relative flex-1 overflow-hidden rounded-xl border border-gray-200 bg-gray-900 text-emerald-400 font-mono text-[11px] p-3">
+              <pre className="h-full overflow-y-auto whitespace-pre-wrap select-all pr-2">
+                {SUPABASE_SQL_SCRIPT}
+              </pre>
+            </div>
+
+            <div className="mt-4 pt-2 flex items-center gap-2 shrink-0">
+              <button
+                onClick={handleCopySql}
+                className="flex-1 py-2.5 px-4 bg-[#8A9A5B] hover:bg-[#7a8950] active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isCopied ? (
+                  <>
+                    <Check size={15} />
+                    <span>Tersalin ke Clipboard!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={15} />
+                    <span>Salin Seluruh Skrip SQL</span>
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => setShowSqlModal(false)}
+                className="py-2.5 px-4 border border-[#E0DCCF] text-gray-700 font-semibold text-xs rounded-xl hover:bg-gray-50 active:scale-95 transition-all cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Konfirmasi Hapus Admin */}
       {adminToDelete && (
