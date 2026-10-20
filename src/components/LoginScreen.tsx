@@ -12,9 +12,10 @@ import {
   CheckCircle2,
   X,
   Share,
-  PlusSquare,
-  MoreVertical,
-  Monitor
+  Monitor,
+  ExternalLink,
+  Sparkles,
+  ArrowDown
 } from 'lucide-react';
 import { AdminUser } from '../types';
 import { supabase } from '../lib/supabase';
@@ -31,13 +32,30 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // PWA Install State & Hook
-  const { isInstallable, isInstalled, isIOS, triggerInstall } = usePWAInstall();
-  const [showInstallModal, setShowInstallModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'android' | 'ios' | 'desktop'>(
-    isIOS ? 'ios' : 'android'
-  );
-  const [installSuccessMessage, setInstallSuccessMessage] = useState('');
+  // Hook PWA dengan deteksi perangkat dan inisiasi instalasi otomatis
+  const {
+    isInstalled,
+    platform,
+    browserName,
+    isIframe,
+    isProcessing,
+    showIOSOverlay,
+    setShowIOSOverlay,
+    showBrowserDirectOverlay,
+    setShowBrowserDirectOverlay,
+    triggerAutomaticInstall,
+    triggerIOSProfileDownload
+  } = usePWAInstall();
+
+  const [installNotification, setInstallNotification] = useState<{
+    type: 'success' | 'info' | 'error';
+    message: string;
+  } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'info' | 'error' = 'info') => {
+    setInstallNotification({ type, message });
+    setTimeout(() => setInstallNotification(null), 5000);
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -132,24 +150,38 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     setErrorMessage('Akun admin tidak ditemukan. Pastikan username atau nama sudah didaftarkan oleh Super Admin.');
   };
 
-  const handleInstallClick = async () => {
-    if (isInstalled) {
-      setInstallSuccessMessage('Aplikasi Dapur Mama RaraLita sudah terinstal di perangkat Anda!');
-      setTimeout(() => setInstallSuccessMessage(''), 4000);
-      return;
-    }
+  // Langsung mulai instalasi otomatis saat tombol diklik
+  const handleDirectInstall = async () => {
+    if (isProcessing) return;
 
-    if (isInstallable) {
-      const outcome = await triggerInstall();
-      if (outcome === 'accepted') {
-        setInstallSuccessMessage('Aplikasi berhasil dipasang ke layar utama!');
-        setTimeout(() => setInstallSuccessMessage(''), 4000);
-        return;
-      }
+    const result = await triggerAutomaticInstall();
+    if (result.status === 'accepted') {
+      showToast(result.message, 'success');
+    } else if (result.status === 'already_installed') {
+      showToast(result.message, 'success');
+    } else if (result.status === 'opened_external') {
+      showToast(result.message, 'info');
+    } else if (result.status === 'ios_profile_started') {
+      showToast('Memulai pemasangan otomatis di iPhone / iPad...', 'info');
+    } else if (result.status === 'browser_direct') {
+      showToast(result.message, 'info');
     }
+  };
 
-    // Tampilkan modal panduan jika prompt otomatis browser belum siap atau di iOS/desktop
-    setShowInstallModal(true);
+  // Label dinamis sesuai perangkat terdeteksi
+  const getDeviceLabel = () => {
+    if (isInstalled) return 'Aplikasi Terpasang (PWA)';
+    if (platform === 'android') return 'Instal Aplikasi di Android';
+    if (platform === 'ios') return 'Instal Aplikasi di iPhone/iPad';
+    return `Instal Aplikasi di Komputer (${browserName})`;
+  };
+
+  const getDeviceSubtitle = () => {
+    if (isInstalled) return 'Sudah aktif di beranda perangkat Anda';
+    if (isProcessing) return 'Sedang memproses instalasi otomatis...';
+    if (platform === 'android') return 'Otomatis pasang ke layar utama HP Android';
+    if (platform === 'ios') return 'Otomatis pasang ke layar utama iPhone/iPad';
+    return 'Otomatis pasang ke komputer / laptop';
   };
 
   return (
@@ -179,11 +211,21 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           </div>
         )}
 
-        {/* Install Success Notification */}
-        {installSuccessMessage && (
-          <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs text-emerald-800 animate-in fade-in leading-snug">
-            <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
-            <span className="font-medium">{installSuccessMessage}</span>
+        {/* Install Status Toast */}
+        {installNotification && (
+          <div
+            className={`mb-4 p-3 rounded-xl flex items-center gap-2 text-xs animate-in fade-in leading-snug border ${
+              installNotification.type === 'success'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : 'bg-amber-50 border-amber-200 text-amber-900'
+            }`}
+          >
+            {installNotification.type === 'success' ? (
+              <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
+            ) : (
+              <Sparkles size={16} className="shrink-0 text-amber-600" />
+            )}
+            <span className="font-medium">{installNotification.message}</span>
           </div>
         )}
 
@@ -263,14 +305,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             <div className="border-t border-[#E0DCCF] w-full" />
           </div>
 
-          {/* Tombol Instal Model PWA (Dibawah Tombol Masuk Aplikasi) */}
+          {/* Tombol Instal Model PWA Otomatis (Dibawah Tombol Masuk Aplikasi) */}
           <button
             type="button"
-            onClick={handleInstallClick}
+            onClick={handleDirectInstall}
+            disabled={isProcessing}
             className={`w-full py-3 px-3.5 rounded-2xl border transition-all flex items-center justify-between text-left group cursor-pointer ${
               isInstalled
-                ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900 shadow-xs'
-                : 'bg-[#FDFBF7] hover:bg-[#F6F2E9] border-[#8A9A5B]/35 hover:border-[#8A9A5B] text-gray-800 active:scale-[0.98] shadow-sm'
+                ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 shadow-xs'
+                : 'bg-[#FDFBF7] hover:bg-[#F6F2E9] border-[#8A9A5B]/40 hover:border-[#8A9A5B] text-gray-800 active:scale-[0.98] shadow-sm hover:shadow-md'
             }`}
           >
             <div className="flex items-center gap-3">
@@ -278,30 +321,36 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 ${
                   isInstalled
                     ? 'bg-emerald-600 text-white shadow-xs'
+                    : isProcessing
+                    ? 'bg-amber-600 text-white'
                     : 'bg-[#8A9A5B] text-white shadow-md shadow-[#8A9A5B]/25'
                 }`}
               >
-                {isInstalled ? <CheckCircle2 size={20} /> : <Download size={20} />}
+                {isProcessing ? (
+                  <Loader2 size={20} className="animate-spin" />
+                ) : isInstalled ? (
+                  <CheckCircle2 size={20} />
+                ) : (
+                  <Download size={20} />
+                )}
               </div>
               <div>
                 <div className="text-xs font-bold flex items-center gap-1.5">
                   <span className={isInstalled ? 'text-emerald-900' : 'text-gray-900'}>
-                    {isInstalled ? 'Aplikasi Terpasang (PWA)' : 'Instal Aplikasi (PWA)'}
+                    {getDeviceLabel()}
                   </span>
                   <span
                     className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${
                       isInstalled
-                        ? 'bg-emerald-200/70 text-emerald-800'
+                        ? 'bg-emerald-200 text-emerald-900'
                         : 'bg-[#8A9A5B]/15 text-[#556334]'
                     }`}
                   >
-                    PWA
+                    {isInstalled ? 'AKTIF' : 'OTOMATIS'}
                   </span>
                 </div>
                 <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">
-                  {isInstalled
-                    ? 'Sudah aktif di layar utama perangkat'
-                    : 'Pasang ke layar utama HP / Komputer'}
+                  {getDeviceSubtitle()}
                 </p>
               </div>
             </div>
@@ -312,196 +361,130 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                   : 'text-gray-400 group-hover:text-[#8A9A5B]'
               }`}
             >
-              <Smartphone size={18} />
+              {platform === 'desktop' ? <Monitor size={18} /> : <Smartphone size={18} />}
             </div>
           </button>
         </form>
       </div>
 
-      {/* Modal Panduan Instal Model PWA */}
-      {showInstallModal && (
+      {/* Asisten Pemasangan Langsung Khusus iOS (iPhone / iPad) */}
+      {showIOSOverlay && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="relative w-full max-w-sm mx-auto bg-white rounded-3xl shadow-2xl border border-[#E0DCCF] p-5 pb-6 animate-in slide-in-from-bottom-6">
+            <button
+              type="button"
+              onClick={() => setShowIOSOverlay(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 transition-colors"
+              aria-label="Tutup"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-[#8A9A5B] text-white flex items-center justify-center shrink-0">
+                <Smartphone size={22} />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-gray-900">Perangkat iPhone / iPad Terdeteksi</h4>
+                <p className="text-[11px] text-[#8A9A5B] font-semibold">Profil WebClip Diunduh Otomatis</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-600 mb-4 leading-relaxed">
+              Untuk memasang langsung ke Layar Utama iPhone/iPad, cukup ikuti 1 langkah cepat berikut di Safari:
+            </p>
+
+            <div className="bg-[#FDFBF7] border border-[#E0DCCF] rounded-2xl p-3.5 mb-4 space-y-2.5">
+              <div className="flex items-center gap-2.5 text-xs text-gray-800 font-medium">
+                <span className="w-6 h-6 rounded-lg bg-[#8A9A5B] text-white flex items-center justify-center text-[11px] font-bold shrink-0">
+                  1
+                </span>
+                <span>
+                  Ketuk tombol <strong>Bagikan</strong> (<Share size={13} className="inline text-blue-600 mx-0.5" />) di bilah bawah Safari
+                </span>
+              </div>
+              <div className="flex items-center gap-2.5 text-xs text-gray-800 font-medium">
+                <span className="w-6 h-6 rounded-lg bg-[#8A9A5B] text-white flex items-center justify-center text-[11px] font-bold shrink-0">
+                  2
+                </span>
+                <span>
+                  Pilih <strong>"Tambahkan ke Layar Utama"</strong> (Add to Home Screen)
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center gap-1.5 text-emerald-700 text-xs font-bold mb-4 animate-bounce">
+              <ArrowDown size={16} />
+              <span>Tekan tombol Bagikan di bilah bawah peramban Anda</span>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={triggerIOSProfileDownload}
+                className="flex-1 py-2.5 px-3 bg-[#F4EFE6] hover:bg-[#EBE5D8] text-gray-800 text-xs font-bold rounded-xl transition-colors text-center"
+              >
+                Unduh Profil Lagi
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowIOSOverlay(false)}
+                className="flex-1 py-2.5 px-3 bg-[#8A9A5B] hover:bg-[#7a8950] text-white text-xs font-bold rounded-xl transition-colors text-center"
+              >
+                Selesai
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Asisten Langsung Browser (Jika Prompt Perlu Dipicu Manual) */}
+      {showBrowserDirectOverlay && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-          <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-[#E0DCCF] overflow-hidden">
-            {/* Header Modal */}
-            <div className="bg-[#8A9A5B] text-white p-5 text-center relative">
-              <button
-                type="button"
-                onClick={() => setShowInstallModal(false)}
-                className="absolute top-4 right-4 text-white/80 hover:text-white p-1 rounded-full hover:bg-black/10 transition-colors cursor-pointer"
-                aria-label="Tutup"
-              >
-                <X size={20} />
-              </button>
-              <div className="w-12 h-12 bg-white/15 rounded-2xl flex items-center justify-center mx-auto mb-2 backdrop-blur-xs">
-                <Download size={24} className="text-white" />
-              </div>
-              <h3 className="text-base font-bold font-serif">Instal Dapur Mama RaraLita</h3>
-              <p className="text-[11px] text-white/90 mt-0.5">
-                Model PWA (Progressive Web App)
-              </p>
+          <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-[#E0DCCF] p-5 animate-in zoom-in-95">
+            <button
+              type="button"
+              onClick={() => setShowBrowserDirectOverlay(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 transition-colors"
+              aria-label="Tutup"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="w-12 h-12 rounded-2xl bg-[#8A9A5B]/15 text-[#556334] flex items-center justify-center mx-auto mb-3">
+              <Download size={24} />
             </div>
 
-            {/* Modal Body */}
-            <div className="p-5">
-              <p className="text-xs text-gray-600 leading-relaxed mb-4 text-center">
-                Pasang aplikasi langsung ke layar utama perangkat Anda agar bisa dibuka instan seperti aplikasi Android / iOS bawaan tanpa mengetik link browser.
-              </p>
+            <h4 className="text-base font-bold text-center text-gray-900 mb-1">
+              Pasang di {browserName} ({platform === 'android' ? 'Android' : 'Komputer'})
+            </h4>
+            <p className="text-xs text-center text-gray-500 mb-4">
+              Konfirmasi pemasangan langsung pada peramban {browserName} Anda:
+            </p>
 
-              {/* Direct Native Install Button if Available */}
-              {isInstallable && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const res = await triggerInstall();
-                    if (res === 'accepted') {
-                      setShowInstallModal(false);
-                      setInstallSuccessMessage('Aplikasi berhasil dipasang ke layar utama!');
-                    }
-                  }}
-                  className="w-full mb-4 py-2.5 px-4 bg-[#8A9A5B] hover:bg-[#7a8950] text-white text-xs font-bold rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95"
-                >
-                  <Download size={16} />
-                  <span>Pasang Otomatis Sekarang</span>
-                </button>
+            <div className="bg-[#FDFBF7] border border-[#E0DCCF] rounded-2xl p-3 text-xs text-gray-700 mb-4 space-y-2">
+              {platform === 'android' ? (
+                <p>
+                  Ketuk menu titik tiga (<strong>⋮</strong>) di pojok kanan atas browser {browserName}, lalu pilih <strong>"Instal aplikasi"</strong>.
+                </p>
+              ) : (
+                <p>
+                  Klik ikon <strong>Instal</strong> pada bilah alamat URL (address bar) di sebelah kanan atas browser {browserName}.
+                </p>
               )}
-
-              {/* Tabs Platform */}
-              <div className="flex bg-[#F4EFE6] p-1 rounded-xl mb-4 gap-1">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('android')}
-                  className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
-                    activeTab === 'android'
-                      ? 'bg-white text-gray-800 shadow-xs'
-                      : 'text-gray-500 hover:text-gray-800'
-                  }`}
-                >
-                  <Smartphone size={13} />
-                  <span>Android</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('ios')}
-                  className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
-                    activeTab === 'ios'
-                      ? 'bg-white text-gray-800 shadow-xs'
-                      : 'text-gray-500 hover:text-gray-800'
-                  }`}
-                >
-                  <Share size={13} />
-                  <span>iPhone/iPad</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('desktop')}
-                  className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
-                    activeTab === 'desktop'
-                      ? 'bg-white text-gray-800 shadow-xs'
-                      : 'text-gray-500 hover:text-gray-800'
-                  }`}
-                >
-                  <Monitor size={13} />
-                  <span>Komputer</span>
-                </button>
-              </div>
-
-              {/* Tab Content */}
-              {activeTab === 'android' && (
-                <div className="space-y-2.5 text-xs text-gray-700 bg-[#FDFBF7] p-3 rounded-2xl border border-[#E0DCCF]">
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-5 h-5 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                      1
-                    </div>
-                    <div>
-                      Tekan tombol <strong>Menu (titik tiga ⋮)</strong> di pojok kanan atas Google Chrome / browser Anda.
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-5 h-5 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                      2
-                    </div>
-                    <div>
-                      Pilih menu <strong>"Instal aplikasi"</strong> atau <strong>"Tambahkan ke Layar Utama"</strong>.
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-5 h-5 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                      3
-                    </div>
-                    <div>
-                      Tekan tombol <strong>Instal</strong>. Aplikasi akan langsung muncul di beranda HP Anda!
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'ios' && (
-                <div className="space-y-2.5 text-xs text-gray-700 bg-[#FDFBF7] p-3 rounded-2xl border border-[#E0DCCF]">
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-5 h-5 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                      1
-                    </div>
-                    <div>
-                      Buka aplikasi menggunakan browser bawaan <strong>Safari</strong> di iPhone/iPad.
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-5 h-5 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                      2
-                    </div>
-                    <div>
-                      Tekan tombol <strong>Bagikan (Share)</strong> <Share size={13} className="inline mx-1 text-blue-600" /> di bilah bawah layar Safari.
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-5 h-5 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                      3
-                    </div>
-                    <div>
-                      Gulir ke bawah dan pilih <strong>"Tambahkan ke Layar Utama" (Add to Home Screen)</strong> <PlusSquare size={13} className="inline mx-1 text-gray-700" />, lalu tekan <strong>Tambah</strong>.
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'desktop' && (
-                <div className="space-y-2.5 text-xs text-gray-700 bg-[#FDFBF7] p-3 rounded-2xl border border-[#E0DCCF]">
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-5 h-5 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                      1
-                    </div>
-                    <div>
-                      Gunakan browser Google Chrome atau Microsoft Edge di komputer Anda.
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-5 h-5 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                      2
-                    </div>
-                    <div>
-                      Perhatikan ikon <strong>Instal</strong> di bilah alamat link URL (sebelah kanan atas).
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-5 h-5 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                      3
-                    </div>
-                    <div>
-                      Klik <strong>"Instal"</strong> agar aplikasi memiliki jendela khusus tanpa address bar.
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Close Button */}
-              <button
-                type="button"
-                onClick={() => setShowInstallModal(false)}
-                className="w-full mt-4 py-2.5 bg-[#F4EFE6] hover:bg-[#EBE5D8] text-gray-800 text-xs font-bold rounded-xl transition-colors cursor-pointer"
-              >
-                Tutup Panduan
-              </button>
             </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setShowBrowserDirectOverlay(false);
+                window.open(`${window.location.origin}${window.location.pathname}?autoInstall=1`, '_blank');
+              }}
+              className="w-full py-2.5 bg-[#8A9A5B] hover:bg-[#7a8950] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95"
+            >
+              <ExternalLink size={15} />
+              <span>Buka di Jendela Khusus & Pasang</span>
+            </button>
           </div>
         </div>
       )}

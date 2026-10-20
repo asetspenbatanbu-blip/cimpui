@@ -13,8 +13,26 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="MamaRaraLita" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <script>
+      // Tangkap event instalasi browser seawal mungkin agar tidak terlewat
+      window.__pwaDeferredPrompt = null;
+      window.__pwaInstalled = false;
+
+      window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault();
+        window.__pwaDeferredPrompt = e;
+        window.dispatchEvent(new CustomEvent('pwa-deferred-prompt-ready', { detail: e }));
+      });
+
+      window.addEventListener('appinstalled', function () {
+        window.__pwaInstalled = true;
+        window.__pwaDeferredPrompt = null;
+        window.dispatchEvent(new CustomEvent('pwa-installed'));
+      });
+    </script>
   </head>
   <body class="bg-[#FDFBF7] text-gray-800 antialiased select-none">
     <div id="root"></div>
