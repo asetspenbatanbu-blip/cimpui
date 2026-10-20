@@ -15,7 +15,9 @@ import {
   Check,
   X,
   AlertTriangle,
-  Loader2
+  Loader2,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { AdminUser } from '../types';
 import { supabase } from '../lib/supabase';
@@ -114,6 +116,25 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
   // Supabase test connection state
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Password visibility & copy credentials state for admin list
+  const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
+  const [copiedAdminUsername, setCopiedAdminUsername] = useState<string | null>(null);
+
+  const togglePasswordVisibility = (uname: string) => {
+    setShowPasswordMap(prev => ({ ...prev, [uname]: !prev[uname] }));
+  };
+
+  const handleCopyAdminCredentials = async (admin: AdminUser) => {
+    const text = `*Akun Admin Dapur Mama RaraLita*\nNama: ${admin.name}\nUsername / ID: ${admin.username}\nPassword: ${admin.password}\n\n_Bisa login menggunakan Username atau Nama Admin._`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedAdminUsername(admin.username);
+      setTimeout(() => setCopiedAdminUsername(null), 2500);
+    } catch (err) {
+      console.error("Gagal menyalin akun admin:", err);
+    }
+  };
 
   // 1. Fetch Admin Accounts from Supabase & Subscribe Realtime
   useEffect(() => {
@@ -453,7 +474,7 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
                     type="text"
                     value={newAdminName}
                     onChange={e => setNewAdminName(e.target.value)}
-                    placeholder="Contoh: Rara Lita..."
+                    placeholder="Nama lengkap admin"
                     disabled={isSubmittingAdmin}
                     className="w-full pl-9 pr-3 py-2 bg-[#FDFBF7] border border-[#E0DCCF] rounded-xl text-xs font-medium text-gray-800 focus:outline-none focus:border-[#8A9A5B] disabled:opacity-50"
                   />
@@ -469,7 +490,7 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
                     type="text"
                     value={newAdminUsername}
                     onChange={e => setNewAdminUsername(e.target.value)}
-                    placeholder="Contoh: admin_rara"
+                    placeholder="Masukkan username..."
                     autoCapitalize="none"
                     disabled={isSubmittingAdmin}
                     className="w-full px-3 py-2 bg-[#FDFBF7] border border-[#E0DCCF] rounded-xl text-xs font-medium text-gray-800 focus:outline-none focus:border-[#8A9A5B] disabled:opacity-50"
@@ -550,40 +571,90 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
             </div>
 
             {/* Sub-Admins List */}
-            {adminList.map(admin => (
-              <div 
-                key={admin.username}
-                className="flex items-center justify-between p-3 bg-[#FDFBF7] border border-[#E0DCCF] rounded-xl hover:border-gray-300 transition-colors"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center font-bold text-xs">
-                    {admin.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-bold text-xs text-gray-800">{admin.name}</span>
-                      <span className="text-[9px] bg-gray-200 text-gray-700 font-semibold px-1.5 py-0.5 rounded">ADMIN</span>
+            {adminList.map(admin => {
+              const isPasswordVisible = !!showPasswordMap[admin.username];
+              const isCopied = copiedAdminUsername === admin.username;
+
+              return (
+                <div 
+                  key={admin.username}
+                  className="p-3 bg-[#FDFBF7] border border-[#E0DCCF] rounded-xl hover:border-gray-300 transition-colors space-y-2"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center font-bold text-xs shrink-0">
+                        {admin.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-bold text-xs text-gray-800">{admin.name}</span>
+                          <span className="text-[9px] bg-gray-200 text-gray-700 font-semibold px-1.5 py-0.2 rounded">ADMIN</span>
+                        </div>
+                        <div className="text-[11px] text-gray-500 font-medium">
+                          Username: <code className="text-gray-700 font-mono font-bold">@{admin.username}</code>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-gray-500">@{admin.username}</span>
-                      {admin.password && (
-                        <span className="text-[10px] text-gray-400">Pass: ••••</span>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyAdminCredentials(admin)}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                          isCopied 
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
+                            : 'bg-white border border-[#E0DCCF] text-[#8A9A5B] hover:bg-[#F5F1E9]'
+                        }`}
+                        title="Salin data login untuk dibagikan ke admin"
+                      >
+                        {isCopied ? (
+                          <>
+                            <Check size={11} />
+                            <span>Tersalin!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={11} />
+                            <span>Salin Info</span>
+                          </>
+                        )}
+                      </button>
+
+                      {currentUser.role === 'SUPER_ADMIN' && (
+                        <button
+                          onClick={() => setAdminToDelete(admin.username)}
+                          className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
+                          title={`Hapus admin @${admin.username} dari Supabase`}
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       )}
                     </div>
                   </div>
-                </div>
 
-                {currentUser.role === 'SUPER_ADMIN' && (
-                  <button
-                    onClick={() => setAdminToDelete(admin.username)}
-                    className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
-                    title={`Hapus admin @${admin.username} dari Supabase`}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                )}
-              </div>
-            ))}
+                  {/* Password Bar */}
+                  {admin.password && (
+                    <div className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-gray-100 text-[11px]">
+                      <div className="flex items-center gap-1.5 text-gray-600 font-mono">
+                        <Key size={12} className="text-gray-400" />
+                        <span>Pass: </span>
+                        <span className="font-bold text-gray-800">
+                          {isPasswordVisible ? admin.password : '••••••••'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => togglePasswordVisibility(admin.username)}
+                        className="text-gray-400 hover:text-gray-700 p-0.5 cursor-pointer"
+                        title={isPasswordVisible ? 'Sembunyikan password' : 'Lihat password'}
+                      >
+                        {isPasswordVisible ? <EyeOff size={13} /> : <Eye size={13} />}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 

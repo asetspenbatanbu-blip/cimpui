@@ -36,16 +36,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
-    const u = username.trim().toLowerCase();
+    const rawInput = username.trim();
+    const cleanId = rawInput.replace(/^@/, '');
     const p = password.trim();
 
-    if (!u || !p) {
-      setErrorMessage('Harap isi username dan password');
+    if (!cleanId || !p) {
+      setErrorMessage('Harap isi username atau nama admin, serta password');
       return;
     }
 
     // 1. Cek Akun Utama Super Admin: dayatbk / dayatlagi
-    if (u === 'dayatbk' && p === 'dayatlagi') {
+    if ((cleanId.toLowerCase() === 'dayatbk' || cleanId.toLowerCase() === 'dayat') && p === 'dayatlagi') {
       const superAdmin: AdminUser = {
         username: 'dayatbk',
         name: 'Dayat (Super Admin)',
@@ -59,27 +60,41 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     setIsLoading(true);
 
     // 2. Cek Akun Sub-Admin dari Supabase (Tabel: cimpui_admins)
+    // Mendukung login baik menggunakan Username maupun Nama Admin
     try {
       const { data, error } = await supabase
         .from('cimpui_admins')
         .select('*')
-        .eq('username', u)
-        .eq('password', p)
-        .maybeSingle();
+        .or(`username.ilike.${cleanId},name.ilike.${cleanId}`);
 
-      if (data && !error) {
-        const userObj: AdminUser = {
-          username: data.username,
-          name: data.name,
-          role: (data.role as any) || 'ADMIN'
-        };
-        localStorage.setItem('dapur_mama_auth', JSON.stringify(userObj));
-        setIsLoading(false);
-        onLoginSuccess(userObj);
-        return;
+      if (error) {
+        console.error('Error dari Supabase cimpui_admins:', error);
       }
-    } catch (err) {
-      console.error('Error verifying admin login from Supabase:', err);
+
+      if (data && data.length > 0) {
+        // Cek kecocokan password
+        const matched = data.find(
+          item => item.password === p || item.password?.trim() === p
+        );
+
+        if (matched) {
+          const userObj: AdminUser = {
+            username: matched.username,
+            name: matched.name,
+            role: (matched.role as any) || 'ADMIN'
+          };
+          localStorage.setItem('dapur_mama_auth', JSON.stringify(userObj));
+          setIsLoading(false);
+          onLoginSuccess(userObj);
+          return;
+        } else {
+          setIsLoading(false);
+          setErrorMessage('Password yang Anda masukkan salah. Silakan periksa kembali.');
+          return;
+        }
+      }
+    } catch (err: any) {
+      console.error('Error saat menghubungi Supabase:', err);
     }
 
     // 3. Fallback: Cek Sub-Admins di localStorage (jika offline)
@@ -88,7 +103,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       if (savedAdmins) {
         const adminsList: AdminUser[] = JSON.parse(savedAdmins);
         const found = adminsList.find(
-          a => a.username.toLowerCase() === u && a.password === p
+          a =>
+            (a.username.toLowerCase() === cleanId.toLowerCase() ||
+             a.name.toLowerCase() === cleanId.toLowerCase()) &&
+            (a.password === p || a.password?.trim() === p)
         );
         if (found) {
           const userObj: AdminUser = {
@@ -107,7 +125,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     }
 
     setIsLoading(false);
-    setErrorMessage('Username atau password salah! Silakan coba lagi.');
+    setErrorMessage('Akun admin tidak ditemukan. Pastikan username atau nama sudah didaftarkan oleh Super Admin.');
   };
 
   return (
@@ -136,8 +154,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
         {/* Error Notification */}
         {errorMessage && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-xs text-red-700 animate-in shake">
-            <AlertCircle size={16} className="shrink-0 text-red-600" />
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2 text-xs text-red-700 animate-in shake leading-snug">
+            <AlertCircle size={16} className="shrink-0 text-red-600 mt-0.5" />
             <span>{errorMessage}</span>
           </div>
         )}
@@ -156,7 +174,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 type="text"
                 value={username}
                 onChange={e => setUsername(e.target.value)}
-                placeholder="Masukkan username..."
+                placeholder="Username"
+                autoComplete="username"
+                spellCheck={false}
                 autoCapitalize="none"
                 autoCorrect="off"
                 disabled={isLoading}

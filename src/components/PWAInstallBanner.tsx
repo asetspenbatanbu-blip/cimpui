@@ -136,33 +136,34 @@ export const PWAInstallBanner: React.FC = () => {
   const handleInstallClick = async () => {
     const promptEvent = deferredPrompt || (typeof window !== 'undefined' && (window as any).__pwaDeferredPrompt);
 
-    // Jika berjalan di dalam pratinjau (iframe) atau browser menahan prompt:
-    if (isInIframe || !promptEvent) {
-      setShowVisualGuide(true);
-      return;
-    }
-
-    // Langsung picu dialog instalasi bawaan browser
-    try {
-      await promptEvent.prompt();
-      const choice = await promptEvent.userChoice;
-      if (choice && choice.outcome === 'accepted') {
-        setIsInstalled(true);
-        setIsDismissed(true);
+    // 1. Jika event prompt bawaan browser tersedia, LANGSUNG picu dialog instalasi sistem!
+    if (promptEvent) {
+      try {
+        await promptEvent.prompt();
+        const choice = await promptEvent.userChoice;
+        if (choice && choice.outcome === 'accepted') {
+          setIsInstalled(true);
+          setIsDismissed(true);
+        }
+        setDeferredPrompt(null);
+        if (typeof window !== 'undefined') {
+          (window as any).__pwaDeferredPrompt = null;
+        }
+        return;
+      } catch (err) {
+        console.warn("Gagal memanggil prompt instalasi bawaan:", err);
       }
-    } catch (err) {
-      console.error("Gagal memanggil prompt instalasi:", err);
-      setShowVisualGuide(true);
     }
 
-    setDeferredPrompt(null);
-    if (typeof window !== 'undefined') {
-      (window as any).__pwaDeferredPrompt = null;
-    }
+    // 2. Jika prompt belum tersedia (misal berjalan di dalam iframe pratinjau atau browser menahan prompt),
+    // tampilkan modal panduan interaktif
+    setShowVisualGuide(true);
   };
 
   const handleOpenInNewTab = () => {
-    window.open(window.location.href, '_blank');
+    if (typeof window !== 'undefined') {
+      window.open(window.location.href, '_blank');
+    }
     setShowVisualGuide(false);
   };
 
@@ -372,13 +373,16 @@ export const PWAInstallBanner: React.FC = () => {
             {/* Action Buttons */}
             <div className="space-y-2 pt-2 border-t border-gray-100">
               {isInIframe && (
-                <button
-                  onClick={handleOpenInNewTab}
-                  className="w-full py-2.5 px-4 bg-[#8A9A5B] hover:bg-[#7a8950] active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+                <a
+                  href={typeof window !== 'undefined' ? window.location.href : '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setShowVisualGuide(false)}
+                  className="w-full py-2.5 px-4 bg-[#8A9A5B] hover:bg-[#7a8950] active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer text-center no-underline"
                 >
                   <ExternalLink size={14} />
                   <span>Buka di Tab Baru untuk Menginstal</span>
-                </button>
+                </a>
               )}
 
               <button

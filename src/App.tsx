@@ -1380,7 +1380,7 @@ export default function App() {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleSaveNewMenu();
                   }}
-                  placeholder="Contoh: Roti Coklat Keju, Bolu Tape..."
+                  placeholder="Nama menu..."
                   autoFocus
                   className="w-full px-3.5 py-2.5 rounded-xl border border-[#E0DCCF] focus:outline-none focus:border-[#8A9A5B] bg-[#FDFBF7] text-sm font-semibold text-gray-800"
                 />

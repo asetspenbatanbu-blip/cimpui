@@ -24,6 +24,15 @@
         window.__pwaDeferredPrompt = e;
         window.dispatchEvent(new CustomEvent('pwa-prompt-ready'));
       });
+
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js', { scope: '/' })
+            .catch(function (err) {
+              console.warn('PWA Service worker note:', err);
+            });
+        });
+      }
     </script>
   </head>
   <body class="bg-[#FDFBF7] text-gray-800 antialiased select-none">
