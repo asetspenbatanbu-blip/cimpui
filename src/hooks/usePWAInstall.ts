@@ -31,6 +31,7 @@ export function usePWAInstall() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showIOSOverlay, setShowIOSOverlay] = useState(false);
   const [showBrowserDirectOverlay, setShowBrowserDirectOverlay] = useState(false);
+  const [isInAppBrowser, setIsInAppBrowser] = useState(false);
 
   // Deteksi perangkat & status PWA
   useEffect(() => {
@@ -54,6 +55,9 @@ export function usePWAInstall() {
     const ua = window.navigator.userAgent.toLowerCase();
     let detectedPlatform: DevicePlatform = 'desktop';
     let detectedBrowser: BrowserType = 'Browser';
+
+    const inApp = /fban|fbav|instagram|line|micromessenger|whatsapp|snapchat|threads/i.test(ua);
+    setIsInAppBrowser(inApp);
 
     if (/iphone|ipad|ipod/.test(ua) && !(window as unknown as { MSStream?: boolean }).MSStream) {
       detectedPlatform = 'ios';
@@ -315,6 +319,7 @@ export function usePWAInstall() {
     setShowIOSOverlay,
     showBrowserDirectOverlay,
     setShowBrowserDirectOverlay,
+    isInAppBrowser,
     triggerAutomaticInstall,
     triggerIOSProfileDownload,
   };

@@ -43,6 +43,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     setShowIOSOverlay,
     showBrowserDirectOverlay,
     setShowBrowserDirectOverlay,
+    isInAppBrowser,
     triggerAutomaticInstall,
     triggerIOSProfileDownload
   } = usePWAInstall();
@@ -456,17 +457,37 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             </div>
 
             <h4 className="text-base font-bold text-center text-gray-900 mb-1">
-              Pasang di {browserName} ({platform === 'android' ? 'Android' : 'Komputer'})
+              {isInAppBrowser
+                ? 'Buka di Chrome untuk Menginstal'
+                : `Pasang di ${browserName} (${platform === 'android' ? 'Android' : 'Komputer'})`}
             </h4>
             <p className="text-xs text-center text-gray-500 mb-4">
-              Konfirmasi pemasangan langsung pada peramban {browserName} Anda:
+              {isInAppBrowser
+                ? 'Peramban aplikasi internal tidak mendukung pemasangan langsung:'
+                : `Konfirmasi pemasangan langsung pada peramban ${browserName} Anda:`}
             </p>
 
-            <div className="bg-[#FDFBF7] border border-[#E0DCCF] rounded-2xl p-3 text-xs text-gray-700 mb-4 space-y-2">
-              {platform === 'android' ? (
-                <p>
-                  Ketuk menu titik tiga (<strong>⋮</strong>) di pojok kanan atas browser {browserName}, lalu pilih <strong>"Instal aplikasi"</strong>.
-                </p>
+            <div className="bg-[#FDFBF7] border border-[#E0DCCF] rounded-2xl p-3.5 text-xs text-gray-700 mb-4 space-y-2 leading-relaxed">
+              {isInAppBrowser ? (
+                <>
+                  <p className="font-semibold text-amber-800">
+                    Anda membuka link di browser internal (seperti WhatsApp/Instagram):
+                  </p>
+                  <ol className="list-decimal list-inside space-y-1 text-gray-600">
+                    <li>Ketuk ikon titik tiga (<strong>⋮</strong>) di pojok kanan atas layar ini.</li>
+                    <li>Pilih <strong>"Buka di Chrome"</strong> (Open in Chrome).</li>
+                    <li>Di Chrome, dialog instalasi resmi akan langsung tersedia.</li>
+                  </ol>
+                </>
+              ) : platform === 'android' ? (
+                <>
+                  <p>
+                    Ketuk menu titik tiga (<strong>⋮</strong>) di pojok kanan atas browser <strong>Google Chrome</strong>, lalu pilih <strong>"Instal aplikasi"</strong> (atau <em>Tambahkan ke Layar Utama</em>).
+                  </p>
+                  <p className="text-[11px] text-gray-500">
+                    Aplikasi akan terpasang sebagai aplikasi mandiri di beranda HP Android Anda tanpa bilah alamat browser.
+                  </p>
+                </>
               ) : (
                 <p>
                   Klik ikon <strong>Instal</strong> pada bilah alamat URL (address bar) di sebelah kanan atas browser {browserName}.

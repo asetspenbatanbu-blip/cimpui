@@ -18,6 +18,13 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
     <link rel="apple-touch-icon" href="/icon-192.png">
     <script>
+      // Registrasi Service Worker seawal mungkin untuk kriteria WebAPK Chrome Android
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function (err) {
+          console.warn('SW register notice:', err);
+        });
+      }
+
       // Tangkap event instalasi browser seawal mungkin agar tidak terlewat
       window.__pwaDeferredPrompt = null;
       window.__pwaInstalled = false;
