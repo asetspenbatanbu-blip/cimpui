@@ -14,7 +14,8 @@ import {
   Copy,
   Check,
   X,
-  AlertTriangle
+  AlertTriangle,
+  Loader2
 } from 'lucide-react';
 import { AdminUser } from '../types';
 import { supabase } from '../lib/supabase';
@@ -27,7 +28,12 @@ interface PengaturanAdminProps {
   totalLocations?: number;
 }
 
-export const SUPABASE_SQL_SCRIPT = `-- Skrip Pembuatan Tabel Pesanan Dapur Mama RaraLita
+export const SUPABASE_SQL_SCRIPT = `-- ==========================================
+-- SKRIP SQL SUPABASE: DAPUR MAMA RARALITA
+-- Tabel: cimpui_orders & cimpui_admins
+-- ==========================================
+
+-- 1. TABEL PESANAN (cimpui_orders)
 create table if not exists public.cimpui_orders (
   id text primary key,
   date text not null,
@@ -38,31 +44,40 @@ create table if not exists public.cimpui_orders (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- Aktifkan Row Level Security (RLS)
 alter table public.cimpui_orders enable row level security;
 
--- Kebijakan Akses Baca (SELECT) untuk Publik / Anon
 create policy "Allow public read access on cimpui_orders"
-  on public.cimpui_orders for select
-  using (true);
-
--- Kebijakan Akses Tambah (INSERT) untuk Publik / Anon
+  on public.cimpui_orders for select using (true);
 create policy "Allow public insert access on cimpui_orders"
-  on public.cimpui_orders for insert
-  with check (true);
-
--- Kebijakan Akses Ubah (UPDATE) untuk Publik / Anon
+  on public.cimpui_orders for insert with check (true);
 create policy "Allow public update access on cimpui_orders"
-  on public.cimpui_orders for update
-  using (true);
-
--- Kebijakan Akses Hapus (DELETE) untuk Publik / Anon
+  on public.cimpui_orders for update using (true);
 create policy "Allow public delete access on cimpui_orders"
-  on public.cimpui_orders for delete
-  using (true);
+  on public.cimpui_orders for delete using (true);
 
--- Aktifkan Sinkronisasi Realtime
-alter publication supabase_realtime add table public.cimpui_orders;`;
+-- 2. TABEL AKUN ADMIN (cimpui_admins)
+create table if not exists public.cimpui_admins (
+  username text primary key,
+  name text not null,
+  password text not null,
+  role text not null default 'ADMIN',
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+alter table public.cimpui_admins enable row level security;
+
+create policy "Allow public read access on cimpui_admins"
+  on public.cimpui_admins for select using (true);
+create policy "Allow public insert access on cimpui_admins"
+  on public.cimpui_admins for insert with check (true);
+create policy "Allow public update access on cimpui_admins"
+  on public.cimpui_admins for update using (true);
+create policy "Allow public delete access on cimpui_admins"
+  on public.cimpui_admins for delete using (true);
+
+-- 3. AKTIFKAN REALTIME UNTUK KEDUA TABEL
+alter publication supabase_realtime add table public.cimpui_orders;
+alter publication supabase_realtime add table public.cimpui_admins;`;
 
 export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
   currentUser,
@@ -87,6 +102,7 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
   const [newAdminPassword, setNewAdminPassword] = useState('');
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
+  const [isSubmittingAdmin, setIsSubmittingAdmin] = useState(false);
 
   // Delete admin confirmation modal state
   const [adminToDelete, setAdminToDelete] = useState<string | null>(null);
@@ -99,29 +115,76 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // 1. Fetch Admin Accounts from Supabase & Subscribe Realtime
+  useEffect(() => {
+    const fetchAdmins = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('cimpui_admins')
+          .select('*')
+          .order('created_at', { ascending: true });
+
+        if (data && !error) {
+          const mapped: AdminUser[] = data.map(d => ({
+            username: d.username,
+            name: d.name,
+            password: d.password,
+            role: d.role as any || 'ADMIN',
+            createdAt: d.created_at ? new Date(d.created_at).toLocaleDateString('id-ID') : undefined
+          }));
+          setAdminList(mapped);
+          localStorage.setItem('dapur_mama_admins', JSON.stringify(mapped));
+        }
+      } catch (err) {
+        console.error("Error fetching admins from Supabase:", err);
+      }
+    };
+
+    fetchAdmins();
+
+    // Realtime changes listener for cimpui_admins
+    const channel = supabase
+      .channel('cimpui_admins_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cimpui_admins' },
+        () => {
+          fetchAdmins();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Save to local storage as fallback
+  useEffect(() => {
+    localStorage.setItem('dapur_mama_admins', JSON.stringify(adminList));
+  }, [adminList]);
+
   const handleTestConnection = async () => {
     setTestingConnection(true);
     setTestResult(null);
     try {
-      const { error } = await supabase.from('cimpui_orders').select('id').limit(1);
-      if (!error) {
+      const ordersRes = await supabase.from('cimpui_orders').select('id').limit(1);
+      const adminsRes = await supabase.from('cimpui_admins').select('username').limit(1);
+
+      if (!ordersRes.error && !adminsRes.error) {
         setTestResult({
           success: true,
-          message: 'Tabel cimpui_orders aktif dan berhasil merespons permintaan!'
+          message: 'Tabel cimpui_orders & cimpui_admins aktif dan berhasil merespons permintaan!'
         });
       } else {
-        const errMsg = error.message || '';
-        if (errMsg.includes('does not exist') || error.code === '42P01') {
-          setTestResult({
-            success: false,
-            message: 'Tabel cimpui_orders belum dibuat di database Supabase Anda. Silakan klik "Salin Skrip SQL" lalu jalankan di Supabase SQL Editor.'
-          });
-        } else {
-          setTestResult({
-            success: false,
-            message: `Koneksi Supabase error: ${error.message}`
-          });
-        }
+        const errList: string[] = [];
+        if (ordersRes.error) errList.push(`cimpui_orders: ${ordersRes.error.message}`);
+        if (adminsRes.error) errList.push(`cimpui_admins: ${adminsRes.error.message}`);
+
+        setTestResult({
+          success: false,
+          message: `Perhatian: ${errList.join(' | ')}. Silakan klik "Salin Skrip SQL" lalu jalankan di Supabase SQL Editor.`
+        });
       }
     } catch (e: any) {
       setTestResult({
@@ -133,10 +196,6 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
     }
   };
 
-  useEffect(() => {
-    localStorage.setItem('dapur_mama_admins', JSON.stringify(adminList));
-  }, [adminList]);
-
   const handleCopySql = async () => {
     try {
       await navigator.clipboard.writeText(SUPABASE_SQL_SCRIPT);
@@ -147,7 +206,7 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
     }
   };
 
-  const handleAddAdmin = (e: React.FormEvent) => {
+  const handleAddAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
     setFormSuccess('');
@@ -171,6 +230,8 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
       return;
     }
 
+    setIsSubmittingAdmin(true);
+
     const newAdmin: AdminUser = {
       username,
       name,
@@ -179,18 +240,58 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
       createdAt: new Date().toLocaleDateString('id-ID')
     };
 
-    setAdminList(prev => [...prev, newAdmin]);
+    // Simpan ke Supabase (cimpui_admins)
+    try {
+      const { error } = await supabase.from('cimpui_admins').upsert({
+        username,
+        name,
+        password,
+        role: 'ADMIN',
+        created_at: new Date().toISOString()
+      });
+
+      if (error) {
+        console.error("Gagal menyimpan admin ke Supabase:", error);
+        // Tetap simpan secara lokal agar tidak hilang
+        setFormSuccess(`Admin "${name}" disimpan lokal (Perhatian: tabel cimpui_admins belum aktif di Supabase).`);
+      } else {
+        setFormSuccess(`Admin "${name}" berhasil didaftarkan ke Supabase & dapat login di perangkat mana pun!`);
+      }
+    } catch (err) {
+      console.error("Error upsert admin:", err);
+      setFormSuccess(`Admin "${name}" disimpan lokal.`);
+    } finally {
+      setIsSubmittingAdmin(false);
+    }
+
+    // Update state & reset form
+    setAdminList(prev => [...prev.filter(a => a.username !== username), newAdmin]);
     setNewAdminName('');
     setNewAdminUsername('');
     setNewAdminPassword('');
-    setFormSuccess(`Admin "${name}" berhasil didaftarkan!`);
+
     setTimeout(() => {
       setFormSuccess('');
-    }, 2500);
+    }, 3500);
   };
 
-  const handleConfirmDeleteAdmin = () => {
+  const handleConfirmDeleteAdmin = async () => {
     if (!adminToDelete) return;
+    
+    // Hapus dari Supabase
+    try {
+      const { error } = await supabase
+        .from('cimpui_admins')
+        .delete()
+        .eq('username', adminToDelete);
+
+      if (error) {
+        console.error("Gagal menghapus admin dari Supabase:", error);
+      }
+    } catch (err) {
+      console.error("Error delete admin:", err);
+    }
+
     setAdminList(prev => prev.filter(a => a.username !== adminToDelete));
     setAdminToDelete(null);
   };
@@ -204,7 +305,7 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
             <ShieldCheck className="text-[#8A9A5B]" /> Pengaturan & Admin
           </h2>
           <p className="text-[11px] text-gray-500">
-            Kelola data admin, database & akun sistem
+            Kelola data admin, database Supabase & akun sistem
           </p>
         </div>
         <button
@@ -256,7 +357,7 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
                   Database Supabase Terhubung
                 </h4>
                 <p className="text-[11px] text-gray-500">
-                  Proyek: <strong className="text-gray-700">asetsmpn1btlcn</strong> (Tabel: <code className="font-mono text-emerald-700 font-bold">cimpui_orders</code>)
+                  Proyek: <strong className="text-gray-700">asetsmpn1btlcn</strong> (Tabel: <code className="font-mono text-emerald-700 font-bold">cimpui_orders</code> & <code className="font-mono text-emerald-700 font-bold">cimpui_admins</code>)
                 </p>
               </div>
             </div>
@@ -285,7 +386,7 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
                     onClick={() => setShowSqlModal(true)}
                     className="block mt-1 font-bold text-[#8A9A5B] hover:underline cursor-pointer"
                   >
-                    Buka Skrip SQL Tabel Supabase &gt;
+                    Buka Skrip SQL Supabase &gt;
                   </button>
                 )}
               </div>
@@ -319,11 +420,11 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
                 <UserPlus size={16} />
               </div>
               <h3 className="font-serif font-bold text-base text-gray-800">
-                Tambah Admin Baru
+                Tambah Admin Baru ke Supabase
               </h3>
             </div>
-            <p className="text-xs text-gray-500 mb-4">
-              Super Admin dapat mendaftarkan akun admin toko untuk membantu mengelola pesanan.
+            <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+              Super Admin dapat mendaftarkan akun admin toko. Akun langsung tersimpan di cloud Supabase sehingga admin dapat login dari HP atau perangkat mana pun.
             </p>
 
             {formError && (
@@ -333,8 +434,8 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
             )}
 
             {formSuccess && (
-              <div className="mb-3 p-2.5 bg-green-50 border border-green-200 rounded-xl text-xs text-green-700 flex items-center gap-1.5 font-medium">
-                <CheckCircle2 size={16} className="text-green-600" />
+              <div className="mb-3 p-2.5 bg-green-50 border border-green-200 rounded-xl text-xs text-green-700 flex items-start gap-1.5 font-medium leading-snug">
+                <CheckCircle2 size={16} className="text-green-600 shrink-0 mt-0.5" />
                 <span>{formSuccess}</span>
               </div>
             )}
@@ -353,7 +454,8 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
                     value={newAdminName}
                     onChange={e => setNewAdminName(e.target.value)}
                     placeholder="Contoh: Rara Lita..."
-                    className="w-full pl-9 pr-3 py-2 bg-[#FDFBF7] border border-[#E0DCCF] rounded-xl text-xs font-medium text-gray-800 focus:outline-none focus:border-[#8A9A5B]"
+                    disabled={isSubmittingAdmin}
+                    className="w-full pl-9 pr-3 py-2 bg-[#FDFBF7] border border-[#E0DCCF] rounded-xl text-xs font-medium text-gray-800 focus:outline-none focus:border-[#8A9A5B] disabled:opacity-50"
                   />
                 </div>
               </div>
@@ -369,7 +471,8 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
                     onChange={e => setNewAdminUsername(e.target.value)}
                     placeholder="Contoh: admin_rara"
                     autoCapitalize="none"
-                    className="w-full px-3 py-2 bg-[#FDFBF7] border border-[#E0DCCF] rounded-xl text-xs font-medium text-gray-800 focus:outline-none focus:border-[#8A9A5B]"
+                    disabled={isSubmittingAdmin}
+                    className="w-full px-3 py-2 bg-[#FDFBF7] border border-[#E0DCCF] rounded-xl text-xs font-medium text-gray-800 focus:outline-none focus:border-[#8A9A5B] disabled:opacity-50"
                   />
                 </div>
                 <div>
@@ -385,7 +488,8 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
                       value={newAdminPassword}
                       onChange={e => setNewAdminPassword(e.target.value)}
                       placeholder="Password login..."
-                      className="w-full pl-9 pr-3 py-2 bg-[#FDFBF7] border border-[#E0DCCF] rounded-xl text-xs font-medium text-gray-800 focus:outline-none focus:border-[#8A9A5B]"
+                      disabled={isSubmittingAdmin}
+                      className="w-full pl-9 pr-3 py-2 bg-[#FDFBF7] border border-[#E0DCCF] rounded-xl text-xs font-medium text-gray-800 focus:outline-none focus:border-[#8A9A5B] disabled:opacity-50"
                     />
                   </div>
                 </div>
@@ -393,10 +497,20 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
 
               <button
                 type="submit"
-                className="w-full mt-2 py-2.5 bg-[#8A9A5B] hover:bg-[#7a8950] text-white font-semibold text-xs rounded-xl shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                disabled={isSubmittingAdmin}
+                className="w-full mt-2 py-2.5 bg-[#8A9A5B] hover:bg-[#7a8950] text-white font-semibold text-xs rounded-xl shadow-xs active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
               >
-                <UserPlus size={15} />
-                <span>Daftarkan Admin</span>
+                {isSubmittingAdmin ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    <span>Mendaftarkan ke Supabase...</span>
+                  </>
+                ) : (
+                  <>
+                    <UserPlus size={15} />
+                    <span>Daftarkan Admin ke Supabase</span>
+                  </>
+                )}
               </button>
             </form>
           </div>
@@ -412,6 +526,9 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
             <h3 className="font-serif font-bold text-base text-gray-800">
               Daftar Admin Terdaftar ({adminList.length + 1})
             </h3>
+            <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 font-semibold">
+              Sinkron Cloud Supabase
+            </span>
           </div>
 
           <div className="space-y-2.5">
@@ -447,7 +564,12 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
                       <span className="font-bold text-xs text-gray-800">{admin.name}</span>
                       <span className="text-[9px] bg-gray-200 text-gray-700 font-semibold px-1.5 py-0.5 rounded">ADMIN</span>
                     </div>
-                    <span className="text-[11px] text-gray-500">@{admin.username}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-gray-500">@{admin.username}</span>
+                      {admin.password && (
+                        <span className="text-[10px] text-gray-400">Pass: ••••</span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -455,7 +577,7 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
                   <button
                     onClick={() => setAdminToDelete(admin.username)}
                     className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
-                    title={`Hapus admin @${admin.username}`}
+                    title={`Hapus admin @${admin.username} dari Supabase`}
                   >
                     <Trash2 size={15} />
                   </button>
@@ -528,7 +650,7 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
                   <h3 className="font-serif font-bold text-base text-gray-800">
                     Skrip SQL Tabel Supabase
                   </h3>
-                  <span className="text-[10px] text-gray-500">Tabel: public.cimpui_orders</span>
+                  <span className="text-[10px] text-gray-500">Tabel: public.cimpui_orders & public.cimpui_admins</span>
                 </div>
               </div>
               <button
@@ -540,7 +662,7 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
             </div>
 
             <p className="text-xs text-gray-600 my-3 leading-relaxed shrink-0">
-              Buka menu <strong>SQL Editor</strong> di dashboard Supabase proyek <strong>asetsmpn1btlcn</strong>, lalu jalankan perintah berikut untuk membuat tabel dan izin publik:
+              Buka menu <strong>SQL Editor</strong> di dashboard Supabase proyek <strong>asetsmpn1btlcn</strong>, lalu tempel (*paste*) dan jalankan (*Run*) skrip ini untuk membuat tabel pesanan dan tabel akun admin:
             </p>
 
             <div className="relative flex-1 overflow-hidden rounded-xl border border-gray-200 bg-gray-900 text-emerald-400 font-mono text-[11px] p-3">
@@ -592,7 +714,7 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
               Hapus Admin?
             </h3>
             <p className="text-xs text-gray-600 mb-4">
-              Akun admin <strong className="text-gray-800">@{adminToDelete}</strong> akan dihapus dan tidak bisa lagi masuk ke sistem.
+              Akun admin <strong className="text-gray-800">@{adminToDelete}</strong> akan dihapus permanen dari Supabase dan tidak bisa lagi masuk di perangkat mana pun.
             </p>
             <div className="flex gap-2">
               <button

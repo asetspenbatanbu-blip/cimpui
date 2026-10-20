@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { ShieldCheck, User, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ShieldCheck, User, Lock, Eye, EyeOff, AlertCircle, Loader2, Download } from 'lucide-react';
 import { AdminUser } from '../types';
+import { supabase } from '../lib/supabase';
+import { PWAInstallBanner, restorePWABanner, isPWADismissed, isPWAStandalone } from './PWAInstallBanner';
 
 interface LoginScreenProps {
   onLoginSuccess: (user: AdminUser) => void;
@@ -11,8 +13,27 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(isPWADismissed);
+  const [standalone, setStandalone] = useState(isPWAStandalone);
 
-  const handleLogin = (e: React.FormEvent) => {
+  useEffect(() => {
+    setStandalone(isPWAStandalone());
+    setBannerDismissed(isPWADismissed());
+
+    const handleDismissed = () => setBannerDismissed(true);
+    const handleRestored = () => setBannerDismissed(false);
+
+    window.addEventListener('pwa-banner-dismissed', handleDismissed);
+    window.addEventListener('pwa-banner-restore', handleRestored);
+
+    return () => {
+      window.removeEventListener('pwa-banner-dismissed', handleDismissed);
+      window.removeEventListener('pwa-banner-restore', handleRestored);
+    };
+  }, []);
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
     const u = username.trim().toLowerCase();
@@ -23,7 +44,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       return;
     }
 
-    // Check Super Admin: dayatbk / dayatlagi
+    // 1. Cek Akun Utama Super Admin: dayatbk / dayatlagi
     if (u === 'dayatbk' && p === 'dayatlagi') {
       const superAdmin: AdminUser = {
         username: 'dayatbk',
@@ -35,7 +56,33 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       return;
     }
 
-    // Check Sub-Admins in localStorage
+    setIsLoading(true);
+
+    // 2. Cek Akun Sub-Admin dari Supabase (Tabel: cimpui_admins)
+    try {
+      const { data, error } = await supabase
+        .from('cimpui_admins')
+        .select('*')
+        .eq('username', u)
+        .eq('password', p)
+        .maybeSingle();
+
+      if (data && !error) {
+        const userObj: AdminUser = {
+          username: data.username,
+          name: data.name,
+          role: (data.role as any) || 'ADMIN'
+        };
+        localStorage.setItem('dapur_mama_auth', JSON.stringify(userObj));
+        setIsLoading(false);
+        onLoginSuccess(userObj);
+        return;
+      }
+    } catch (err) {
+      console.error('Error verifying admin login from Supabase:', err);
+    }
+
+    // 3. Fallback: Cek Sub-Admins di localStorage (jika offline)
     try {
       const savedAdmins = localStorage.getItem('dapur_mama_admins');
       if (savedAdmins) {
@@ -50,14 +97,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             role: found.role
           };
           localStorage.setItem('dapur_mama_auth', JSON.stringify(userObj));
+          setIsLoading(false);
           onLoginSuccess(userObj);
           return;
         }
       }
     } catch (err) {
-      console.error('Error verifying admin login:', err);
+      console.error('Error verifying admin login from local storage:', err);
     }
 
+    setIsLoading(false);
     setErrorMessage('Username atau password salah! Silakan coba lagi.');
   };
 
@@ -65,6 +114,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     <div className="min-h-[100dvh] bg-[#FDFBF7] flex flex-col justify-center items-center p-4 relative font-sans">
       {/* Background Decorative Rings */}
       <div className="absolute top-0 left-0 right-0 h-44 bg-[#8A9A5B] rounded-b-[40px] shadow-sm -z-0" />
+
+      {/* Spanduk PWA di Halaman Login */}
+      <div className="relative z-10 w-full max-w-sm mb-3">
+        <PWAInstallBanner />
+      </div>
 
       <div className="relative z-10 w-full max-w-sm bg-white rounded-3xl shadow-xl border border-[#E0DCCF] p-6 sm:p-8 animate-in zoom-in-95 duration-200">
         {/* Header Branding */}
@@ -76,7 +130,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             Dapur mama RaraLita
           </h1>
           <p className="text-xs text-gray-500 mt-1 uppercase tracking-widest font-semibold">
-            Portal Masuk Super Admin
+            Portal Masuk Admin
           </p>
         </div>
 
@@ -105,7 +159,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 placeholder="Masukkan username..."
                 autoCapitalize="none"
                 autoCorrect="off"
-                className="w-full pl-10 pr-4 py-2.5 bg-[#FDFBF7] border border-[#E0DCCF] rounded-xl text-sm font-medium text-gray-800 focus:outline-none focus:border-[#8A9A5B] focus:ring-1 focus:ring-[#8A9A5B]"
+                disabled={isLoading}
+                className="w-full pl-10 pr-4 py-2.5 bg-[#FDFBF7] border border-[#E0DCCF] rounded-xl text-sm font-medium text-gray-800 focus:outline-none focus:border-[#8A9A5B] focus:ring-1 focus:ring-[#8A9A5B] disabled:opacity-50"
               />
             </div>
           </div>
@@ -123,7 +178,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="Masukkan password..."
-                className="w-full pl-10 pr-10 py-2.5 bg-[#FDFBF7] border border-[#E0DCCF] rounded-xl text-sm font-medium text-gray-800 focus:outline-none focus:border-[#8A9A5B] focus:ring-1 focus:ring-[#8A9A5B]"
+                disabled={isLoading}
+                className="w-full pl-10 pr-10 py-2.5 bg-[#FDFBF7] border border-[#E0DCCF] rounded-xl text-sm font-medium text-gray-800 focus:outline-none focus:border-[#8A9A5B] focus:ring-1 focus:ring-[#8A9A5B] disabled:opacity-50"
               />
               <button
                 type="button"
@@ -137,12 +193,37 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
           <button
             type="submit"
-            className="w-full mt-2 py-3.5 bg-[#8A9A5B] hover:bg-[#7a8950] text-white font-bold rounded-2xl shadow-lg shadow-[#8A9A5B]/25 active:scale-95 transition-all text-sm tracking-wide cursor-pointer"
+            disabled={isLoading}
+            className="w-full mt-2 py-3.5 bg-[#8A9A5B] hover:bg-[#7a8950] text-white font-bold rounded-2xl shadow-lg shadow-[#8A9A5B]/25 active:scale-95 transition-all text-sm tracking-wide cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2"
           >
-            Masuk ke Aplikasi
+            {isLoading ? (
+              <>
+                <Loader2 size={18} className="animate-spin" />
+                <span>Memeriksa Akun...</span>
+              </>
+            ) : (
+              <span>Masuk ke Aplikasi</span>
+            )}
           </button>
         </form>
       </div>
+
+      {/* Tombol Pemulihan Panduan PWA di Halaman Login */}
+      {!standalone && bannerDismissed && (
+        <div className="relative z-10 mt-4 text-center animate-in fade-in duration-300">
+          <button
+            type="button"
+            onClick={() => {
+              restorePWABanner();
+              setBannerDismissed(false);
+            }}
+            className="inline-flex items-center gap-1.5 text-xs text-[#8A9A5B] hover:text-[#7a8950] font-semibold bg-white/95 hover:bg-white shadow-md shadow-[#8A9A5B]/10 px-4 py-2 rounded-full cursor-pointer transition-all active:scale-95 border border-[#8A9A5B]/30"
+          >
+            <Download size={13} />
+            <span>Tampilkan kembali panduan instalasi aplikasi</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

@@ -17,12 +17,13 @@ import {
   RotateCcw,
   ShieldCheck,
   MapPin,
-  ChevronDown
+  ChevronDown,
+  Download
 } from 'lucide-react';
 import { Category, AppTab, RekapFilter, CartItem, Order, AdminUser } from './types';
 import { LoginScreen } from './components/LoginScreen';
 import { PengaturanAdmin } from './components/PengaturanAdmin';
-import { PWAInstallBanner } from './components/PWAInstallBanner';
+import { PWAInstallBanner, restorePWABanner, isPWAStandalone } from './components/PWAInstallBanner';
 
 // --- Data Constants & Configurations ---
 const CATEGORY_CONFIG: Record<Category, { label: string; rekapLabel: string; sizes: string[] }> = {
@@ -102,6 +103,16 @@ export default function App() {
   const [menuTab, setMenuTab] = useState<Category>('ROTI_PIZZA');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [history, setHistory] = useState<Order[]>([]);
+
+  // Standalone PWA detection
+  const [isStandalone, setIsStandalone] = useState(isPWAStandalone);
+
+  useEffect(() => {
+    setIsStandalone(isPWAStandalone());
+    const handleInstalled = () => setIsStandalone(true);
+    window.addEventListener('appinstalled', handleInstalled);
+    return () => window.removeEventListener('appinstalled', handleInstalled);
+  }, []);
 
   // Wilayah / Locations State
   const [locations, setLocations] = useState<string[]>(() => {
@@ -1105,6 +1116,29 @@ export default function App() {
           <p className="text-[10px] opacity-90 uppercase tracking-widest mt-0.5">Cita Rasa Rumah di Setiap Gigitan</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Tombol Instal Aplikasi di Header (Otomatis Sembunyi di Mode Standalone) */}
+          {!isStandalone && (
+            <button
+              onClick={() => {
+                const p = (window as any).__pwaDeferredPrompt;
+                if (p) {
+                  p.prompt().then((choice: any) => {
+                    if (choice && choice.outcome === 'accepted') {
+                      setIsStandalone(true);
+                    }
+                  });
+                } else {
+                  restorePWABanner();
+                }
+              }}
+              className="bg-white/20 hover:bg-white/30 text-white active:scale-95 text-xs font-bold px-2.5 py-1.5 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer border border-white/25"
+              title="Pasang / Instal Aplikasi"
+            >
+              <Download size={14} />
+              <span className="text-[11px]">Instal</span>
+            </button>
+          )}
+
           <div className="text-right hidden sm:block">
             <span className="text-xs font-bold block leading-tight">{currentUser.name}</span>
             <span className="text-[10px] text-white/80">@{currentUser.username}</span>
