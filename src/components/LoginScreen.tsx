@@ -474,17 +474,26 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setShowBrowserDirectOverlay(false);
-                window.open(`${window.location.origin}${window.location.pathname}?autoInstall=1`, '_blank');
-              }}
-              className="w-full py-2.5 bg-[#8A9A5B] hover:bg-[#7a8950] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95"
-            >
-              <ExternalLink size={15} />
-              <span>Buka di Jendela Khusus & Pasang</span>
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  setShowBrowserDirectOverlay(false);
+                  await triggerAutomaticInstall();
+                }}
+                className="flex-1 py-2.5 bg-[#8A9A5B] hover:bg-[#7a8950] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95 cursor-pointer"
+              >
+                <Download size={15} />
+                <span>Coba Pasang Sekarang</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowBrowserDirectOverlay(false)}
+                className="py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
           </div>
         </div>
       )}

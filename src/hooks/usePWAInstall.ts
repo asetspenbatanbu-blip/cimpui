@@ -213,19 +213,7 @@ export function usePWAInstall() {
         };
       }
 
-      // 2. Terdeteksi di dalam iframe (AI Studio preview)
-      // Browser Chromium & Safari memblokir install prompt di dalam iframe, jadi buka langsung di tab browser
-      if (isIframe) {
-        setIsProcessing(false);
-        const targetUrl = `${window.location.origin}${window.location.pathname}?autoInstall=1`;
-        window.open(targetUrl, '_blank');
-        return {
-          status: 'opened_external',
-          message: 'Membuka peramban untuk memulai pemasangan aplikasi secara otomatis...'
-        };
-      }
-
-      // 3. Prompt native PWA sudah siap (Chrome Android / Edge / Chrome Desktop / Samsung)
+      // 2. Prompt native PWA sudah siap (Chrome Android / Edge / Chrome Desktop / Samsung)
       const activePrompt = deferredPrompt || window.__pwaDeferredPrompt;
       if (activePrompt) {
         await activePrompt.prompt();
