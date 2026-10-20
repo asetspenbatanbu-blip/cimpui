@@ -13,9 +13,11 @@ import {
   Database,
   Copy,
   Check,
-  X
+  X,
+  AlertTriangle
 } from 'lucide-react';
 import { AdminUser } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface PengaturanAdminProps {
   currentUser: AdminUser;
@@ -92,6 +94,44 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
   // Supabase SQL Modal state
   const [showSqlModal, setShowSqlModal] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+
+  // Supabase test connection state
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleTestConnection = async () => {
+    setTestingConnection(true);
+    setTestResult(null);
+    try {
+      const { error } = await supabase.from('cimpui_orders').select('id').limit(1);
+      if (!error) {
+        setTestResult({
+          success: true,
+          message: 'Tabel cimpui_orders aktif dan berhasil merespons permintaan!'
+        });
+      } else {
+        const errMsg = error.message || '';
+        if (errMsg.includes('does not exist') || error.code === '42P01') {
+          setTestResult({
+            success: false,
+            message: 'Tabel cimpui_orders belum dibuat di database Supabase Anda. Silakan klik "Salin Skrip SQL" lalu jalankan di Supabase SQL Editor.'
+          });
+        } else {
+          setTestResult({
+            success: false,
+            message: `Koneksi Supabase error: ${error.message}`
+          });
+        }
+      }
+    } catch (e: any) {
+      setTestResult({
+        success: false,
+        message: `Gagal terhubung ke Supabase: ${e.message || e}`
+      });
+    } finally {
+      setTestingConnection(false);
+    }
+  };
 
   useEffect(() => {
     localStorage.setItem('dapur_mama_admins', JSON.stringify(adminList));
@@ -226,8 +266,41 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
             </span>
           </div>
 
-          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between text-xs">
-            <span className="text-gray-500 text-[11px]">Skrip SQL Tabel <code className="font-mono text-gray-700 font-bold">cimpui_orders</code></span>
+          {/* Test Result Message */}
+          {testResult && (
+            <div className={`mt-2.5 p-2.5 rounded-xl text-xs flex items-start gap-2 border ${
+              testResult.success 
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                : 'bg-amber-50 border-amber-200 text-amber-900'
+            }`}>
+              {testResult.success ? (
+                <CheckCircle2 size={16} className="text-emerald-600 shrink-0 mt-0.5" />
+              ) : (
+                <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+              )}
+              <div className="flex-1 leading-snug">
+                <span>{testResult.message}</span>
+                {!testResult.success && (
+                  <button
+                    onClick={() => setShowSqlModal(true)}
+                    className="block mt-1 font-bold text-[#8A9A5B] hover:underline cursor-pointer"
+                  >
+                    Buka Skrip SQL Tabel Supabase &gt;
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between text-xs gap-2">
+            <button
+              onClick={handleTestConnection}
+              disabled={testingConnection}
+              className="text-gray-600 hover:text-gray-900 font-medium text-[11px] bg-gray-100 hover:bg-gray-200 active:scale-95 px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+            >
+              <RotateCcw size={12} className={testingConnection ? 'animate-spin' : ''} />
+              <span>{testingConnection ? 'Memeriksa...' : 'Tes Respon Tabel'}</span>
+            </button>
             <button
               onClick={() => setShowSqlModal(true)}
               className="text-[#8A9A5B] font-bold text-xs hover:underline flex items-center gap-1 cursor-pointer"

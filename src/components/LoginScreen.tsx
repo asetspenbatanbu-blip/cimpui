@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, User, Lock, Eye, EyeOff, Sparkles, AlertCircle } from 'lucide-react';
+import { ShieldCheck, User, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { AdminUser } from '../types';
 
 interface LoginScreenProps {
@@ -59,12 +59,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     }
 
     setErrorMessage('Username atau password salah! Silakan coba lagi.');
-  };
-
-  const handleFillSuperAdminDemo = () => {
-    setUsername('dayatbk');
-    setPassword('dayatlagi');
-    setErrorMessage('');
   };
 
   return (
@@ -134,7 +128,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-gray-600"
+                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-gray-600 cursor-pointer"
               >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
@@ -143,26 +137,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
           <button
             type="submit"
-            className="w-full mt-2 py-3.5 bg-[#8A9A5B] hover:bg-[#7a8950] text-white font-bold rounded-2xl shadow-lg shadow-[#8A9A5B]/25 active:scale-95 transition-all text-sm tracking-wide"
+            className="w-full mt-2 py-3.5 bg-[#8A9A5B] hover:bg-[#7a8950] text-white font-bold rounded-2xl shadow-lg shadow-[#8A9A5B]/25 active:scale-95 transition-all text-sm tracking-wide cursor-pointer"
           >
             Masuk ke Aplikasi
           </button>
         </form>
-
-        {/* Demo Fast Fill Button */}
-        <div className="mt-5 pt-4 border-t border-[#E0DCCF]/60 text-center">
-          <button
-            type="button"
-            onClick={handleFillSuperAdminDemo}
-            className="inline-flex items-center gap-1.5 text-xs text-[#8A9A5B] hover:underline font-semibold bg-[#F5F1E9] px-3 py-1.5 rounded-full"
-          >
-            <Sparkles size={13} />
-            <span>Isi Akun Super Admin Otomatis</span>
-          </button>
-          <p className="text-[10px] text-gray-400 mt-2">
-            Super Admin: <code className="text-gray-600 font-mono">dayatbk</code> / <code className="text-gray-600 font-mono">dayatlagi</code>
-          </p>
-        </div>
       </div>
     </div>
   );
