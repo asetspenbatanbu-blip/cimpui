@@ -9,28 +9,14 @@
     <meta property="og:description" content="Aplikasi pesanan kue kering, bolu, roti, pizza dan gorengan khusus mobile." />
     <meta property="og:type" content="website" />
     <meta name="theme-color" content="#8A9A5B" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="DapurMama" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
-    <link rel="manifest" href="/manifest.webmanifest" />
     <script>
-      window.__pwaDeferredPrompt = null;
-      window.addEventListener('beforeinstallprompt', function (e) {
-        e.preventDefault();
-        window.__pwaDeferredPrompt = e;
-        window.dispatchEvent(new CustomEvent('pwa-prompt-ready'));
-      });
-
+      // Pastikan service worker lama di-unregister jika pernah terdaftar
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function () {
-          navigator.serviceWorker.register('/sw.js', { scope: '/' })
-            .catch(function (err) {
-              console.warn('PWA Service worker note:', err);
-            });
+        navigator.serviceWorker.getRegistrations().then(function (registrations) {
+          for (var registration of registrations) {
+            registration.unregister();
+          }
         });
       }
     </script>
