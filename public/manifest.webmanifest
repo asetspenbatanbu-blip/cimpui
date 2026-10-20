@@ -2,13 +2,16 @@
   "id": "/",
   "name": "Dapur Mama RaraLita",
   "short_name": "MamaRaraLita",
-  "description": "Aplikasi pesanan kue, bolu, roti, pizza dan gorengan.",
-  "theme_color": "#8A9A5B",
-  "background_color": "#FDFBF7",
-  "display": "standalone",
-  "orientation": "portrait",
+  "description": "Aplikasi pesanan kue basah, kue kering, bolu, roti, pizza, dan aneka gorengan.",
   "start_url": "/",
   "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "theme_color": "#8A9A5B",
+  "background_color": "#FDFBF7",
+  "lang": "id",
+  "categories": ["food", "shopping", "business"],
   "icons": [
     {
       "src": "/pwa-192x192.png",
@@ -27,6 +30,21 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Pesanan Kue & Roti",
+      "short_name": "Pesanan",
+      "description": "Buka daftar pesanan pelanggan",
+      "url": "/",
+      "icons": [
+        {
+          "src": "/pwa-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     }
   ]
 }
