@@ -9,17 +9,12 @@
     <meta property="og:description" content="Aplikasi pesanan kue kering, bolu, roti, pizza dan gorengan khusus mobile." />
     <meta property="og:type" content="website" />
     <meta name="theme-color" content="#8A9A5B" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="MamaRaraLita" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <script>
-      // Pastikan service worker lama di-unregister jika pernah terdaftar
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(function (registrations) {
-          for (var registration of registrations) {
-            registration.unregister();
-          }
-        });
-      }
-    </script>
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   </head>
   <body class="bg-[#FDFBF7] text-gray-800 antialiased select-none">
     <div id="root"></div>
