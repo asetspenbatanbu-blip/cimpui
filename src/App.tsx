@@ -22,6 +22,7 @@ import {
 import { Category, AppTab, RekapFilter, CartItem, Order, AdminUser } from './types';
 import { LoginScreen } from './components/LoginScreen';
 import { PengaturanAdmin } from './components/PengaturanAdmin';
+import { PWAInstallBanner } from './components/PWAInstallBanner';
 
 // --- Data Constants & Configurations ---
 const CATEGORY_CONFIG: Record<Category, { label: string; rekapLabel: string; sizes: string[] }> = {
@@ -80,6 +81,39 @@ const DEFAULT_LOCATIONS = [
   "Luar Daerah"
 ];
 
+// Helper untuk menggabungkan menu tersimpan dengan menu default terbaru di kode.
+// Menjamin setiap ada menu baru yang ditambahkan di kode (DEFAULT_MENU_ITEMS),
+// menu tersebut akan langsung muncul di laptop/HP tanpa menghapus menu kustom yang dibuat pengguna!
+function mergeMenuItemsWithDefaults(saved: any): Record<Category, string[]> {
+  const result: Record<Category, string[]> = {
+    ROTI_PIZZA: [...DEFAULT_MENU_ITEMS.ROTI_PIZZA],
+    BOLU: [...DEFAULT_MENU_ITEMS.BOLU],
+    KUE: [...DEFAULT_MENU_ITEMS.KUE],
+    GORENGAN: [...DEFAULT_MENU_ITEMS.GORENGAN]
+  };
+
+  if (!saved || typeof saved !== 'object') return result;
+
+  CATEGORY_ORDER.forEach((cat) => {
+    const savedList = saved[cat];
+    if (Array.isArray(savedList)) {
+      const merged = [...savedList];
+      // Jika ada menu default baru di kode program, sertakan otomatis jika belum ada di list
+      DEFAULT_MENU_ITEMS[cat].forEach((defaultItem) => {
+        const exists = merged.some(
+          (item) => item.trim().toLowerCase() === defaultItem.trim().toLowerCase()
+        );
+        if (!exists) {
+          merged.push(defaultItem);
+        }
+      });
+      result[cat] = merged;
+    }
+  });
+
+  return result;
+}
+
 interface SelectedProduct {
   name: string;
   category: Category;
@@ -117,18 +151,12 @@ export default function App() {
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [newLocationInput, setNewLocationInput] = useState('');
 
-  // Custom Menu Items State
+  // Custom Menu Items State dengan penggabungan cerdas menu default & kustom
   const [menuItems, setMenuItems] = useState<Record<Category, string[]>>(() => {
     try {
       const saved = localStorage.getItem('dapur_mama_custom_menu');
       if (saved) {
-        const parsed = JSON.parse(saved);
-        return {
-          ROTI_PIZZA: parsed.ROTI_PIZZA || DEFAULT_MENU_ITEMS.ROTI_PIZZA,
-          BOLU: parsed.BOLU || DEFAULT_MENU_ITEMS.BOLU,
-          KUE: parsed.KUE || DEFAULT_MENU_ITEMS.KUE,
-          GORENGAN: parsed.GORENGAN || DEFAULT_MENU_ITEMS.GORENGAN
-        };
+        return mergeMenuItemsWithDefaults(JSON.parse(saved));
       }
     } catch (e) {
       console.error("Error loading custom menu:", e);
@@ -166,10 +194,83 @@ export default function App() {
   const [isResetting, setIsResetting] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
 
-  // Simpan custom menu jika ada perubahan
+  // Simpan custom menu jika ada perubahan lokal dan sinkronkan ke Supabase jika tabel ada
   useEffect(() => {
     localStorage.setItem('dapur_mama_custom_menu', JSON.stringify(menuItems));
+
+    // Sinkronkan ke Supabase cimpui_menu di latar belakang (jika tabel cimpui_menu telah dibuat)
+    const syncToSupabase = async () => {
+      try {
+        for (const cat of CATEGORY_ORDER) {
+          await supabase
+            .from('cimpui_menu')
+            .upsert({
+              category: cat,
+              items: menuItems[cat],
+              updated_at: new Date().toISOString()
+            }, { onConflict: 'category' });
+        }
+      } catch (err) {
+        // Abaikan jika tabel Supabase belum ada
+      }
+    };
+    syncToSupabase();
   }, [menuItems]);
+
+  // Sinkronisasi realtime multi-tab lokal (jika tab lain di browser mengubah menu)
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'dapur_mama_custom_menu' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          setMenuItems(mergeMenuItemsWithDefaults(parsed));
+        } catch (err) {
+          console.error("Error syncing menu storage:", err);
+        }
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  // Sinkronisasi cloud menu via Supabase cimpui_menu (jika tabel cimpui_menu tersedia di database)
+  useEffect(() => {
+    const fetchCloudMenu = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('cimpui_menu')
+          .select('*');
+        if (data && !error && data.length > 0) {
+          const cloudMap: Partial<Record<Category, string[]>> = {};
+          data.forEach((row: any) => {
+            if (row.category && Array.isArray(row.items)) {
+              cloudMap[row.category as Category] = row.items;
+            }
+          });
+          setMenuItems(prev => mergeMenuItemsWithDefaults({ ...prev, ...cloudMap }));
+        }
+      } catch (err) {
+        // Fallback senyap jika tabel belum dibuat di Supabase
+      }
+    };
+
+    fetchCloudMenu();
+
+    const menuChannel = supabase
+      .channel('cimpui_menu_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cimpui_menu' },
+        () => {
+          fetchCloudMenu();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(menuChannel);
+    };
+  }, []);
 
   // Simpan locations jika ada perubahan
   useEffect(() => {
@@ -243,6 +344,36 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem('dapur_mama_auth');
     setCurrentUser(null);
+  };
+
+  const handleForceSyncMenu = async () => {
+    // 1. Gabungkan ulang dengan seluruh menu default terbaru di kode tanpa hapus menu kustom
+    const refreshed = mergeMenuItemsWithDefaults(menuItems);
+    setMenuItems(refreshed);
+    localStorage.setItem('dapur_mama_custom_menu', JSON.stringify(refreshed));
+
+    // 2. Coba sinkronkan ke Supabase jika tabel ada
+    try {
+      for (const cat of CATEGORY_ORDER) {
+        await supabase
+          .from('cimpui_menu')
+          .upsert({
+            category: cat,
+            items: refreshed[cat],
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'category' });
+      }
+    } catch {}
+
+    // 3. Minta service worker untuk update aset terbaru
+    if ('serviceWorker' in navigator) {
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const reg of regs) {
+          await reg.update();
+        }
+      } catch {}
+    }
   };
 
   const handleOpenProduct = (name: string, category: Category) => {
@@ -1093,6 +1224,9 @@ export default function App() {
 
   return (
     <div className="w-full max-w-3xl mx-auto h-[100dvh] bg-[#FDFBF7] flex flex-col relative sm:shadow-2xl sm:border-x border-[#E0DCCF] overflow-hidden font-sans">
+      {/* PWA In-App Install Banner */}
+      <PWAInstallBanner />
+
       {/* Header */}
       <header className="bg-[#8A9A5B] text-white px-5 py-3.5 shadow-md flex justify-between items-center z-20 shrink-0">
         <div>
@@ -1137,6 +1271,7 @@ export default function App() {
             }}
             onOpenLocationModal={() => setIsLocationModalOpen(true)}
             totalLocations={locations.length}
+            onSyncMenu={handleForceSyncMenu}
           />
         )}
       </main>

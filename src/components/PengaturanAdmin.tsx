@@ -17,10 +17,15 @@ import {
   AlertTriangle,
   Loader2,
   Eye,
-  EyeOff
+  EyeOff,
+  Download,
+  Smartphone,
+  Monitor,
+  Share
 } from 'lucide-react';
 import { AdminUser } from '../types';
 import { supabase } from '../lib/supabase';
+import { usePWAInstall } from '../hooks/usePWAInstall';
 
 interface PengaturanAdminProps {
   currentUser: AdminUser;
@@ -28,11 +33,12 @@ interface PengaturanAdminProps {
   onOpenResetModal: () => void;
   onOpenLocationModal?: () => void;
   totalLocations?: number;
+  onSyncMenu?: () => Promise<void> | void;
 }
 
 export const SUPABASE_SQL_SCRIPT = `-- ==========================================
 -- SKRIP SQL SUPABASE: DAPUR MAMA RARALITA
--- Tabel: cimpui_orders & cimpui_admins
+-- Tabel: cimpui_orders, cimpui_admins & cimpui_menu
 -- ==========================================
 
 -- 1. TABEL PESANAN (cimpui_orders)
@@ -77,16 +83,36 @@ create policy "Allow public update access on cimpui_admins"
 create policy "Allow public delete access on cimpui_admins"
   on public.cimpui_admins for delete using (true);
 
--- 3. AKTIFKAN REALTIME UNTUK KEDUA TABEL
+-- 3. TABEL MENU & SINKRONISASI REALTIME ANTAR PERANGKAT (cimpui_menu)
+create table if not exists public.cimpui_menu (
+  category text primary key,
+  items jsonb not null default '[]'::jsonb,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+alter table public.cimpui_menu enable row level security;
+
+create policy "Allow public read access on cimpui_menu"
+  on public.cimpui_menu for select using (true);
+create policy "Allow public insert access on cimpui_menu"
+  on public.cimpui_menu for insert with check (true);
+create policy "Allow public update access on cimpui_menu"
+  on public.cimpui_menu for update using (true);
+create policy "Allow public delete access on cimpui_menu"
+  on public.cimpui_menu for delete using (true);
+
+-- 4. AKTIFKAN REALTIME UNTUK SEMUA TABEL
 alter publication supabase_realtime add table public.cimpui_orders;
-alter publication supabase_realtime add table public.cimpui_admins;`;
+alter publication supabase_realtime add table public.cimpui_admins;
+alter publication supabase_realtime add table public.cimpui_menu;`;
 
 export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
   currentUser,
   onLogout,
   onOpenResetModal,
   onOpenLocationModal,
-  totalLocations = 0
+  totalLocations = 0,
+  onSyncMenu
 }) => {
   const [adminList, setAdminList] = useState<AdminUser[]>(() => {
     try {
@@ -120,6 +146,38 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
   // Password visibility & copy credentials state for admin list
   const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
   const [copiedAdminUsername, setCopiedAdminUsername] = useState<string | null>(null);
+
+  // Auto-Update & Menu Sync State
+  const [isSyncingMenu, setIsSyncingMenu] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+
+  const handleTriggerSync = async () => {
+    setIsSyncingMenu(true);
+    setSyncFeedback(null);
+    try {
+      if (onSyncMenu) {
+        await onSyncMenu();
+      }
+      setSyncFeedback('Menu & cache berhasil diperbarui ke versi paling baru!');
+      setTimeout(() => setSyncFeedback(null), 4000);
+    } catch (e: any) {
+      setSyncFeedback('Gagal memperbarui: ' + (e?.message || e));
+    } finally {
+      setIsSyncingMenu(false);
+    }
+  };
+
+  // PWA State
+  const {
+    isInstallable,
+    isInstalled,
+    isIOS,
+    isAndroid,
+    isDesktop,
+    install,
+    restore
+  } = usePWAInstall();
+  const [showPwaModal, setShowPwaModal] = useState(false);
 
   const togglePasswordVisibility = (uname: string) => {
     setShowPasswordMap(prev => ({ ...prev, [uname]: !prev[uname] }));
@@ -364,6 +422,107 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
               </p>
             </div>
           </div>
+        </div>
+
+        {/* Card Status Progressive Web App (PWA) */}
+        <div className="bg-white rounded-2xl p-4 shadow-xs border border-[#E0DCCF]">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#8A9A5B]/15 text-[#556334] flex items-center justify-center shrink-0">
+                {isDesktop ? <Monitor size={20} /> : <Smartphone size={20} />}
+              </div>
+              <div>
+                <h4 className="font-serif font-bold text-sm text-gray-800">
+                  Status Aplikasi PWA
+                </h4>
+                <p className="text-[11px] text-gray-500">
+                  {isInstalled
+                    ? 'Aplikasi berjalan dalam mode mandiri (Standalone).'
+                    : isIOS
+                    ? 'Dapat dipasang ke layar utama iPhone/iPad.'
+                    : isAndroid
+                    ? 'Dapat dipasang ke HP Android sebagai WebAPK.'
+                    : 'Dapat diinstal di Windows / Mac / Linux.'}
+                </p>
+              </div>
+            </div>
+
+            {isInstalled ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-full shrink-0">
+                <CheckCircle2 size={12} className="text-emerald-600" />
+                Terpasang
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (isInstallable) {
+                    await install();
+                  } else {
+                    restore();
+                    setShowPwaModal(true);
+                  }
+                }}
+                className="py-1.5 px-3 bg-[#8A9A5B] hover:bg-[#7a8950] text-white text-xs font-bold rounded-xl shadow-xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+              >
+                <Download size={14} />
+                <span>Pasang</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Card Sinkronisasi & Auto-Update */}
+        <div className="bg-white rounded-2xl p-4 shadow-xs border border-[#E0DCCF]">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                <RotateCcw size={18} />
+              </div>
+              <div>
+                <h4 className="font-serif font-bold text-sm text-gray-800">
+                  Pembaruan Otomatis & Menu
+                </h4>
+                <p className="text-[11px] text-gray-500">
+                  Update tampilan dan menu otomatis aktif tanpa perlu hapus riwayat/cache browser.
+                </p>
+              </div>
+            </div>
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+              Auto-Sync
+            </span>
+          </div>
+
+          <p className="text-xs text-gray-600 bg-blue-50/50 p-2.5 rounded-xl border border-blue-100 mb-3 leading-relaxed">
+            Aplikasi memeriksa pembaruan secara berkala dan setiap kali layar dibuka. Jika Anda baru saja menambahkan menu di kode atau ingin memaksakan sinkronisasi menu default terbaru, klik tombol di bawah ini:
+          </p>
+
+          {syncFeedback && (
+            <div className="mb-3 p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2 font-medium">
+              <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+              <span>{syncFeedback}</span>
+            </div>
+          )}
+
+          <button
+            type="button"
+            disabled={isSyncingMenu}
+            onClick={handleTriggerSync}
+            className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl shadow-xs active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          >
+            {isSyncingMenu ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                <span>Memperbarui Menu & Cache...</span>
+              </>
+            ) : (
+              <>
+                <RotateCcw size={14} />
+                <span>Perbarui / Sinkronkan Menu & Tampilan Terbaru</span>
+              </>
+            )}
+          </button>
         </div>
 
         {/* Database Supabase Integration Status */}
@@ -799,6 +958,77 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
                 className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold text-xs active:scale-95 transition-all shadow-xs cursor-pointer"
               >
                 Ya, Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Panduan Instalasi PWA */}
+      {showPwaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-xs animate-in fade-in"
+            onClick={() => setShowPwaModal(false)}
+          />
+          <div className="relative bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-[#E0DCCF] z-10 animate-in zoom-in-95">
+            <button
+              onClick={() => setShowPwaModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 p-1.5 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="w-12 h-12 rounded-2xl bg-[#8A9A5B]/15 text-[#556334] flex items-center justify-center mx-auto mb-3">
+              {isDesktop ? <Monitor size={24} /> : <Smartphone size={24} />}
+            </div>
+
+            <h3 className="font-serif font-bold text-base text-gray-800 text-center mb-1">
+              {isIOS ? 'Pasang di iPhone / iPad' : isAndroid ? 'Pasang di Android' : 'Pasang di Komputer'}
+            </h3>
+            <p className="text-xs text-gray-500 text-center mb-4">
+              Aplikasi mandiri tanpa bilah URL peramban
+            </p>
+
+            <div className="bg-[#FDFBF7] border border-[#E0DCCF] rounded-2xl p-4 text-xs text-gray-700 space-y-2.5 mb-5">
+              {isIOS ? (
+                <>
+                  <p>1. Ketuk tombol <strong>Bagikan</strong> (<Share size={12} className="inline text-blue-600" />) di Safari.</p>
+                  <p>2. Pilih <strong>"Tambahkan ke Layar Utama"</strong> (Add to Home Screen).</p>
+                  <p>3. Ketuk <strong>"Tambah"</strong> di kanan atas.</p>
+                </>
+              ) : isAndroid ? (
+                <>
+                  <p>1. Buka tautan di <strong>Google Chrome</strong>.</p>
+                  <p>2. Ketuk menu titik tiga (<strong>⋮</strong>) di kanan atas.</p>
+                  <p>3. Pilih <strong>"Instal aplikasi"</strong>.</p>
+                </>
+              ) : (
+                <>
+                  <p>1. Klik ikon <strong>Instal</strong> di bilah alamat (URL bar) browser.</p>
+                  <p>2. Klik <strong>"Instal"</strong> pada jendela konfirmasi.</p>
+                </>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              {!isIOS && isInstallable && (
+                <button
+                  onClick={async () => {
+                    setShowPwaModal(false);
+                    await install();
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-[#8A9A5B] hover:bg-[#7a8950] text-white font-semibold text-xs active:scale-95 transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Download size={15} />
+                  <span>Pasang Sekarang</span>
+                </button>
+              )}
+              <button
+                onClick={() => setShowPwaModal(false)}
+                className="flex-1 py-2.5 rounded-xl border border-[#E0DCCF] text-gray-700 font-semibold text-xs active:scale-95 transition-all cursor-pointer text-center"
+              >
+                Selesai
               </button>
             </div>
           </div>

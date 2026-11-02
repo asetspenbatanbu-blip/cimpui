@@ -32,21 +32,18 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Hook PWA dengan deteksi perangkat dan inisiasi instalasi otomatis
+  // Hook PWA dengan deteksi perangkat dan pemicu instalasi
   const {
+    isInstallable,
     isInstalled,
-    platform,
-    browserName,
-    isIframe,
-    isProcessing,
-    showIOSOverlay,
-    setShowIOSOverlay,
-    showBrowserDirectOverlay,
-    setShowBrowserDirectOverlay,
-    isInAppBrowser,
-    triggerAutomaticInstall,
-    triggerIOSProfileDownload
+    isIOS,
+    isAndroid,
+    isDesktop,
+    install,
   } = usePWAInstall();
+
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [showGuideModal, setShowGuideModal] = useState(false);
 
   const [installNotification, setInstallNotification] = useState<{
     type: 'success' | 'info' | 'error';
@@ -151,38 +148,46 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     setErrorMessage('Akun admin tidak ditemukan. Pastikan username atau nama sudah didaftarkan oleh Super Admin.');
   };
 
-  // Langsung mulai instalasi otomatis saat tombol diklik
+  // Handler instalasi aplikasi PWA
   const handleDirectInstall = async () => {
-    if (isProcessing) return;
+    if (isInstalled) {
+      showToast('Aplikasi Dapur Mama RaraLita sudah terpasang dan aktif di perangkat ini!', 'success');
+      return;
+    }
 
-    const result = await triggerAutomaticInstall();
-    if (result.status === 'accepted') {
-      showToast(result.message, 'success');
-    } else if (result.status === 'already_installed') {
-      showToast(result.message, 'success');
-    } else if (result.status === 'opened_external') {
-      showToast(result.message, 'info');
-    } else if (result.status === 'ios_profile_started') {
-      showToast('Memulai pemasangan otomatis di iPhone / iPad...', 'info');
-    } else if (result.status === 'browser_direct') {
-      showToast(result.message, 'info');
+    if (isIOS) {
+      setShowGuideModal(true);
+      return;
+    }
+
+    if (isInstallable) {
+      setIsProcessing(true);
+      const outcome = await install();
+      setIsProcessing(false);
+      if (outcome === 'accepted') {
+        showToast('Aplikasi berhasil dipasang ke perangkat Anda!', 'success');
+      } else if (outcome === 'unavailable') {
+        setShowGuideModal(true);
+      }
+    } else {
+      setShowGuideModal(true);
     }
   };
 
   // Label dinamis sesuai perangkat terdeteksi
   const getDeviceLabel = () => {
     if (isInstalled) return 'Aplikasi Terpasang (PWA)';
-    if (platform === 'android') return 'Instal Aplikasi di Android';
-    if (platform === 'ios') return 'Instal Aplikasi di iPhone/iPad';
-    return `Instal Aplikasi di Komputer (${browserName})`;
+    if (isAndroid) return 'Instal Aplikasi di Android';
+    if (isIOS) return 'Instal Aplikasi di iPhone/iPad';
+    return 'Instal Aplikasi di Komputer/Laptop';
   };
 
   const getDeviceSubtitle = () => {
     if (isInstalled) return 'Sudah aktif di beranda perangkat Anda';
-    if (isProcessing) return 'Sedang memproses instalasi otomatis...';
-    if (platform === 'android') return 'Otomatis pasang ke layar utama HP Android';
-    if (platform === 'ios') return 'Otomatis pasang ke layar utama iPhone/iPad';
-    return 'Otomatis pasang ke komputer / laptop';
+    if (isProcessing) return 'Sedang memproses instalasi...';
+    if (isAndroid) return 'Pasang langsung ke layar utama Android';
+    if (isIOS) return 'Pasang ke layar utama iPhone/iPad';
+    return 'Pasang ke Windows / Mac / Desktop';
   };
 
   return (
@@ -362,157 +367,136 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                   : 'text-gray-400 group-hover:text-[#8A9A5B]'
               }`}
             >
-              {platform === 'desktop' ? <Monitor size={18} /> : <Smartphone size={18} />}
+              {isDesktop ? <Monitor size={18} /> : <Smartphone size={18} />}
             </div>
           </button>
         </form>
       </div>
 
-      {/* Asisten Pemasangan Langsung Khusus iOS (iPhone / iPad) */}
-      {showIOSOverlay && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-          <div className="relative w-full max-w-sm mx-auto bg-white rounded-3xl shadow-2xl border border-[#E0DCCF] p-5 pb-6 animate-in slide-in-from-bottom-6">
-            <button
-              type="button"
-              onClick={() => setShowIOSOverlay(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 transition-colors"
-              aria-label="Tutup"
-            >
-              <X size={20} />
-            </button>
-
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-xl bg-[#8A9A5B] text-white flex items-center justify-center shrink-0">
-                <Smartphone size={22} />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-gray-900">Perangkat iPhone / iPad Terdeteksi</h4>
-                <p className="text-[11px] text-[#8A9A5B] font-semibold">Profil WebClip Diunduh Otomatis</p>
-              </div>
-            </div>
-
-            <p className="text-xs text-gray-600 mb-4 leading-relaxed">
-              Untuk memasang langsung ke Layar Utama iPhone/iPad, cukup ikuti 1 langkah cepat berikut di Safari:
-            </p>
-
-            <div className="bg-[#FDFBF7] border border-[#E0DCCF] rounded-2xl p-3.5 mb-4 space-y-2.5">
-              <div className="flex items-center gap-2.5 text-xs text-gray-800 font-medium">
-                <span className="w-6 h-6 rounded-lg bg-[#8A9A5B] text-white flex items-center justify-center text-[11px] font-bold shrink-0">
-                  1
-                </span>
-                <span>
-                  Ketuk tombol <strong>Bagikan</strong> (<Share size={13} className="inline text-blue-600 mx-0.5" />) di bilah bawah Safari
-                </span>
-              </div>
-              <div className="flex items-center gap-2.5 text-xs text-gray-800 font-medium">
-                <span className="w-6 h-6 rounded-lg bg-[#8A9A5B] text-white flex items-center justify-center text-[11px] font-bold shrink-0">
-                  2
-                </span>
-                <span>
-                  Pilih <strong>"Tambahkan ke Layar Utama"</strong> (Add to Home Screen)
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-center gap-1.5 text-emerald-700 text-xs font-bold mb-4 animate-bounce">
-              <ArrowDown size={16} />
-              <span>Tekan tombol Bagikan di bilah bawah peramban Anda</span>
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={triggerIOSProfileDownload}
-                className="flex-1 py-2.5 px-3 bg-[#F4EFE6] hover:bg-[#EBE5D8] text-gray-800 text-xs font-bold rounded-xl transition-colors text-center"
-              >
-                Unduh Profil Lagi
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowIOSOverlay(false)}
-                className="flex-1 py-2.5 px-3 bg-[#8A9A5B] hover:bg-[#7a8950] text-white text-xs font-bold rounded-xl transition-colors text-center"
-              >
-                Selesai
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Asisten Langsung Browser (Jika Prompt Perlu Dipicu Manual) */}
-      {showBrowserDirectOverlay && (
+      {/* Modal Panduan & Pemasangan PWA (iOS, Android, Laptop/PC) */}
+      {showGuideModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-          <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-[#E0DCCF] p-5 animate-in zoom-in-95">
+          <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-[#E0DCCF] p-5 sm:p-6 animate-in zoom-in-95">
             <button
               type="button"
-              onClick={() => setShowBrowserDirectOverlay(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 transition-colors"
+              onClick={() => setShowGuideModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 p-1.5 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
               aria-label="Tutup"
             >
               <X size={20} />
             </button>
 
             <div className="w-12 h-12 rounded-2xl bg-[#8A9A5B]/15 text-[#556334] flex items-center justify-center mx-auto mb-3">
-              <Download size={24} />
+              {isDesktop ? <Monitor size={24} /> : <Smartphone size={24} />}
             </div>
 
-            <h4 className="text-base font-bold text-center text-gray-900 mb-1">
-              {isInAppBrowser
-                ? 'Buka di Chrome untuk Menginstal'
-                : `Pasang di ${browserName} (${platform === 'android' ? 'Android' : 'Komputer'})`}
+            <h4 className="text-base font-bold text-center text-gray-900 mb-1 font-serif">
+              {isIOS
+                ? 'Pasang di iPhone / iPad'
+                : isAndroid
+                ? 'Pasang di HP Android'
+                : 'Pasang di Laptop / Komputer'}
             </h4>
             <p className="text-xs text-center text-gray-500 mb-4">
-              {isInAppBrowser
-                ? 'Peramban aplikasi internal tidak mendukung pemasangan langsung:'
-                : `Konfirmasi pemasangan langsung pada peramban ${browserName} Anda:`}
+              {isIOS
+                ? 'Gunakan Safari untuk memasang langsung ke Layar Utama'
+                : isAndroid
+                ? 'Jalankan aplikasi mandiri tanpa bilah alamat browser'
+                : 'Pasang aplikasi di desktop Windows / macOS / Linux'}
             </p>
 
-            <div className="bg-[#FDFBF7] border border-[#E0DCCF] rounded-2xl p-3.5 text-xs text-gray-700 mb-4 space-y-2 leading-relaxed">
-              {isInAppBrowser ? (
+            <div className="bg-[#FDFBF7] border border-[#E0DCCF] rounded-2xl p-4 text-xs text-gray-700 mb-5 space-y-3">
+              {isIOS ? (
                 <>
-                  <p className="font-semibold text-amber-800">
-                    Anda membuka link di browser internal (seperti WhatsApp/Instagram):
-                  </p>
-                  <ol className="list-decimal list-inside space-y-1 text-gray-600">
-                    <li>Ketuk ikon titik tiga (<strong>⋮</strong>) di pojok kanan atas layar ini.</li>
-                    <li>Pilih <strong>"Buka di Chrome"</strong> (Open in Chrome).</li>
-                    <li>Di Chrome, dialog instalasi resmi akan langsung tersedia.</li>
-                  </ol>
+                  <div className="flex items-start gap-2.5">
+                    <span className="w-5 h-5 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                      1
+                    </span>
+                    <span>
+                      Buka halaman ini di browser <strong>Safari</strong> lalu ketuk tombol <strong>Bagikan</strong> (<Share size={12} className="inline text-blue-600 mx-0.5" />) di bilah bawah.
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <span className="w-5 h-5 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                      2
+                    </span>
+                    <span>
+                      Gulir ke bawah dan pilih <strong>"Tambahkan ke Layar Utama"</strong> (Add to Home Screen).
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <span className="w-5 h-5 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                      3
+                    </span>
+                    <span>
+                      Ketuk <strong>"Tambah"</strong> di pojok kanan atas. Ikon aplikasi akan langsung muncul di beranda iPhone Anda!
+                    </span>
+                  </div>
                 </>
-              ) : platform === 'android' ? (
+              ) : isAndroid ? (
                 <>
-                  <p>
-                    Ketuk menu titik tiga (<strong>⋮</strong>) di pojok kanan atas browser <strong>Google Chrome</strong>, lalu pilih <strong>"Instal aplikasi"</strong> (atau <em>Tambahkan ke Layar Utama</em>).
-                  </p>
-                  <p className="text-[11px] text-gray-500">
-                    Aplikasi akan terpasang sebagai aplikasi mandiri di beranda HP Android Anda tanpa bilah alamat browser.
-                  </p>
+                  <div className="flex items-start gap-2.5">
+                    <span className="w-5 h-5 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                      1
+                    </span>
+                    <span>
+                      Pastikan tautan dibuka di <strong>Google Chrome</strong> (bukan di browser chat internal WhatsApp/Instagram).
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <span className="w-5 h-5 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                      2
+                    </span>
+                    <span>
+                      Ketuk tombol <strong>"Pasang Sekarang"</strong> di bawah, atau ketuk menu titik tiga (<strong>⋮</strong>) di pojok kanan atas Chrome &gt; pilih <strong>"Instal aplikasi"</strong>.
+                    </span>
+                  </div>
                 </>
               ) : (
-                <p>
-                  Klik ikon <strong>Instal</strong> pada bilah alamat URL (address bar) di sebelah kanan atas browser {browserName}.
-                </p>
+                <>
+                  <div className="flex items-start gap-2.5">
+                    <span className="w-5 h-5 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                      1
+                    </span>
+                    <span>
+                      Di browser Google Chrome atau Microsoft Edge, klik tombol <strong>"Pasang Sekarang"</strong> di bawah.
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <span className="w-5 h-5 rounded-full bg-[#8A9A5B] text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
+                      2
+                    </span>
+                    <span>
+                      Atau klik ikon <strong>Instal</strong> (gambar monitor dengan panah ke bawah) di ujung kanan bilah alamat (address bar) browser.
+                    </span>
+                  </div>
+                </>
               )}
             </div>
 
             <div className="flex gap-2">
+              {!isIOS && isInstallable && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setShowGuideModal(false);
+                    const res = await install();
+                    if (res === 'accepted') {
+                      showToast('Aplikasi berhasil dipasang!', 'success');
+                    }
+                  }}
+                  className="flex-1 py-2.5 bg-[#8A9A5B] hover:bg-[#7a8950] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
+                >
+                  <Download size={15} />
+                  <span>Pasang Sekarang</span>
+                </button>
+              )}
               <button
                 type="button"
-                onClick={async () => {
-                  setShowBrowserDirectOverlay(false);
-                  await triggerAutomaticInstall();
-                }}
-                className="flex-1 py-2.5 bg-[#8A9A5B] hover:bg-[#7a8950] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-md transition-all active:scale-95 cursor-pointer"
+                onClick={() => setShowGuideModal(false)}
+                className="flex-1 py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition-all cursor-pointer text-center"
               >
-                <Download size={15} />
-                <span>Coba Pasang Sekarang</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowBrowserDirectOverlay(false)}
-                className="py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
-              >
-                Tutup
+                {isIOS || !isInstallable ? 'Mengerti' : 'Batal'}
               </button>
             </div>
           </div>
