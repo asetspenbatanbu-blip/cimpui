@@ -39,7 +39,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     isIOS,
     isAndroid,
     isDesktop,
+    isWebView,
     install,
+    openInChrome,
   } = usePWAInstall();
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -160,17 +162,18 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       return;
     }
 
-    if (isInstallable) {
-      setIsProcessing(true);
+    setIsProcessing(true);
+    try {
       const outcome = await install();
-      setIsProcessing(false);
       if (outcome === 'accepted') {
         showToast('Aplikasi berhasil dipasang ke perangkat Anda!', 'success');
       } else if (outcome === 'unavailable') {
         setShowGuideModal(true);
       }
-    } else {
+    } catch {
       setShowGuideModal(true);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -475,7 +478,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             </div>
 
             <div className="flex gap-2">
-              {!isIOS && isInstallable && (
+              {!isIOS && (
                 <button
                   type="button"
                   onClick={async () => {
@@ -496,7 +499,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 onClick={() => setShowGuideModal(false)}
                 className="flex-1 py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition-all cursor-pointer text-center"
               >
-                {isIOS || !isInstallable ? 'Mengerti' : 'Batal'}
+                {isIOS ? 'Mengerti' : 'Tutup'}
               </button>
             </div>
           </div>

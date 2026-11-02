@@ -174,10 +174,13 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
     isIOS,
     isAndroid,
     isDesktop,
+    isWebView,
     install,
+    openInChrome,
     restore
   } = usePWAInstall();
   const [showPwaModal, setShowPwaModal] = useState(false);
+  const [isInstallingPwa, setIsInstallingPwa] = useState(false);
 
   const togglePasswordVisibility = (uname: string) => {
     setShowPasswordMap(prev => ({ ...prev, [uname]: !prev[uname] }));
@@ -455,18 +458,40 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
             ) : (
               <button
                 type="button"
+                disabled={isInstallingPwa}
                 onClick={async () => {
-                  if (isInstallable) {
-                    await install();
-                  } else {
+                  if (isIOS) {
                     restore();
                     setShowPwaModal(true);
+                    return;
+                  }
+                  setIsInstallingPwa(true);
+                  try {
+                    const outcome = await install();
+                    if (outcome === 'unavailable') {
+                      restore();
+                      setShowPwaModal(true);
+                    }
+                  } catch {
+                    restore();
+                    setShowPwaModal(true);
+                  } finally {
+                    setIsInstallingPwa(false);
                   }
                 }}
-                className="py-1.5 px-3 bg-[#8A9A5B] hover:bg-[#7a8950] text-white text-xs font-bold rounded-xl shadow-xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                className="py-1.5 px-3 bg-[#8A9A5B] hover:bg-[#7a8950] text-white text-xs font-bold rounded-xl shadow-xs active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-60"
               >
-                <Download size={14} />
-                <span>Pasang</span>
+                {isInstallingPwa ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Memasang...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download size={14} />
+                    <span>Pasang</span>
+                  </>
+                )}
               </button>
             )}
           </div>
@@ -1012,7 +1037,7 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
             </div>
 
             <div className="flex gap-2">
-              {!isIOS && isInstallable && (
+              {!isIOS && (
                 <button
                   onClick={async () => {
                     setShowPwaModal(false);

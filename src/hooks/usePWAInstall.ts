@@ -27,6 +27,7 @@ export function usePWAInstall() {
   const [isIOS, setIsIOS] = useState(false);
   const [isAndroid, setIsAndroid] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
+  const [isWebView, setIsWebView] = useState(false);
   const [isInIframe, setIsInIframe] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [isDismissed, setIsDismissed] = useState<boolean>(() => {
@@ -62,17 +63,19 @@ export function usePWAInstall() {
       setIsInIframe(true);
     }
 
-    // 3. Deteksi Otomatis Perangkat: iOS (iPhone/iPad) vs Android vs Laptop/PC
+    // 3. Deteksi Otomatis Perangkat: iOS (iPhone/iPad) vs Android vs Laptop/PC & WebView
     const ua = window.navigator.userAgent.toLowerCase();
     const isIOSDevice =
       /iphone|ipad|ipod/.test(ua) ||
       (window.navigator.platform === 'MacIntel' && window.navigator.maxTouchPoints > 1);
     const isAndroidDevice = /android/.test(ua);
     const isMobileOther = /webos|blackberry|iemobile|opera mini/.test(ua);
+    const isAppWebView = /wv|fbav|instagram|line|micromessenger|threads/i.test(ua);
 
     setIsIOS(isIOSDevice);
     setIsAndroid(isAndroidDevice);
     setIsDesktop(!isIOSDevice && !isAndroidDevice && !isMobileOther);
+    setIsWebView(isAppWebView);
 
     // 4. Tangkap event beforeinstallprompt (khusus Android & Laptop/PC Chrome/Edge/Chromium)
     const handleBeforeInstallPrompt = (e: Event) => {
@@ -157,21 +160,48 @@ export function usePWAInstall() {
     window.dispatchEvent(new Event(RESTORE_EVENT_NAME));
   }, []);
 
+  // Fungsi khusus untuk membuka langsung di Google Chrome jika pengguna membuka dari aplikasi WhatsApp/Instagram
+  const openInChrome = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const cleanUrl = window.location.href.replace(/^https?:\/\//, '');
+    window.location.href = `intent://${cleanUrl}#Intent;scheme=https;package=com.android.chrome;end`;
+  }, []);
+
   // Fungsi pemicu dialog instalasi native browser (beforeinstallprompt)
   const install = useCallback(async (): Promise<'accepted' | 'dismissed' | 'unavailable'> => {
-    const activePrompt = deferredPrompt || (typeof window !== 'undefined' ? window.__pwaDeferredPrompt : null);
+    let activePrompt = deferredPrompt || (typeof window !== 'undefined' ? window.__pwaDeferredPrompt : null);
+
+    // Jika prompt belum siap saat tombol diklik, tunggu hingga 1.5 detik
+    // karena browser Chromium seringkali membutuhkan 500-1000ms untuk memvalidasi manifest dan service worker
+    if (!activePrompt && typeof window !== 'undefined') {
+      activePrompt = await new Promise<BeforeInstallPromptEvent | null>((resolve) => {
+        const timeout = setTimeout(() => {
+          resolve(window.__pwaDeferredPrompt || null);
+        }, 1500);
+
+        const onReady = (e: any) => {
+          clearTimeout(timeout);
+          window.removeEventListener('pwa-deferred-prompt-ready', onReady);
+          resolve(e.detail || window.__pwaDeferredPrompt || null);
+        };
+        window.addEventListener('pwa-deferred-prompt-ready', onReady, { once: true });
+      });
+    }
+
     if (!activePrompt) {
       return 'unavailable';
     }
+
     try {
+      // Pemicu dialog instalasi native bawaan browser/OS secara langsung
       await activePrompt.prompt();
-      const { outcome } = await activePrompt.userChoice;
+      const choiceResult = await activePrompt.userChoice;
       setDeferredPrompt(null);
       if (typeof window !== 'undefined') {
         window.__pwaDeferredPrompt = null;
       }
 
-      if (outcome === 'accepted') {
+      if (choiceResult && choiceResult.outcome === 'accepted') {
         setIsInstalled(true);
         if (typeof window !== 'undefined') {
           window.__pwaInstalled = true;
@@ -182,7 +212,7 @@ export function usePWAInstall() {
       dismiss();
       return 'dismissed';
     } catch (err) {
-      console.warn('Gagal memicu install prompt:', err);
+      console.warn('Gagal memicu install prompt native:', err);
       return 'unavailable';
     }
   }, [deferredPrompt, dismiss]);
@@ -193,11 +223,13 @@ export function usePWAInstall() {
     isIOS,
     isAndroid,
     isDesktop,
+    isWebView,
     isAndroidOrDesktop: !isIOS,
     isInIframe,
     isDismissed,
     isClosing,
     install,
+    openInChrome,
     dismiss,
     restore,
   };
