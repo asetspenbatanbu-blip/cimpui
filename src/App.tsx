@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from './lib/supabase';
 import { 
   Store, 
@@ -19,7 +19,9 @@ import {
   MapPin,
   ChevronDown,
   LogOut,
-  Save
+  Save,
+  Users,
+  User
 } from 'lucide-react';
 import { Category, AppTab, RekapFilter, CartItem, Order, AdminUser } from './types';
 import { LoginScreen } from './components/LoginScreen';
@@ -137,6 +139,9 @@ export default function App() {
   const [menuTab, setMenuTab] = useState<Category>('ROTI_PIZZA');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [history, setHistory] = useState<Order[]>([]);
+  // Filter admin untuk Super Admin ('ALL' = Semua Admin, atau username admin tertentu)
+  const [selectedAdminFilter, setSelectedAdminFilter] = useState<string>('ALL');
+  const [adminAccounts, setAdminAccounts] = useState<{ username: string; name: string }[]>([]);
 
 
   // Wilayah / Locations State
@@ -350,6 +355,7 @@ export default function App() {
             date: d.date,
             customerName: d.customer_name,
             customerLocation: d.customer_location || locations[0] || "Batulicin",
+            adminUsername: d.admin_username || 'admin',
             items: d.items,
             totalItems: d.total_items
           }));
@@ -393,10 +399,57 @@ export default function App() {
     };
   }, []);
 
+  // Ambil daftar akun admin untuk filter rekapan Super Admin
+  useEffect(() => {
+    const fetchAdmins = async () => {
+      try {
+        const { data } = await supabase.from('cimpui_admins').select('username, name');
+        if (data && data.length > 0) {
+          setAdminAccounts(data);
+        } else {
+          const local = localStorage.getItem('dapur_mama_custom_admins');
+          if (local) setAdminAccounts(JSON.parse(local));
+        }
+      } catch {
+        const local = localStorage.getItem('dapur_mama_custom_admins');
+        if (local) setAdminAccounts(JSON.parse(local));
+      }
+    };
+    fetchAdmins();
+  }, []);
+
   // Save history on change locally
   useEffect(() => {
     localStorage.setItem('dapur_mama_history', JSON.stringify(history));
   }, [history]);
+
+  // Daftar admin untuk opsi dropdown filter Super Admin
+  const adminOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    map.set('admin', 'Super Admin (admin)');
+    adminAccounts.forEach(a => map.set(a.username, `${a.name} (@${a.username})`));
+    history.forEach(o => {
+      const u = o.adminUsername || 'admin';
+      if (!map.has(u)) {
+        map.set(u, `@${u}`);
+      }
+    });
+    return Array.from(map.entries()).map(([username, label]) => ({ username, label }));
+  }, [adminAccounts, history]);
+
+  // Data riwayat & rekapan yang aktif berdasarkan hak akses login:
+  // - Admin biasa (ADMIN): HANYA membaca transaksi miliknya sendiri (adminUsername === currentUser.username)
+  // - Super Admin (SUPER_ADMIN): Bisa membaca seluruh transaksi (ALL) atau memfilter per nama admin
+  const activeHistory = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role !== 'SUPER_ADMIN') {
+      return history.filter(o => (o.adminUsername || 'admin') === currentUser.username);
+    }
+    if (selectedAdminFilter !== 'ALL') {
+      return history.filter(o => (o.adminUsername || 'admin') === selectedAdminFilter);
+    }
+    return history;
+  }, [history, currentUser, selectedAdminFilter]);
 
   // --- Handlers ---
   const handleLogout = () => {
@@ -641,6 +694,7 @@ export default function App() {
         ...existingOrder,
         date: new Date().toLocaleString('id-ID'),
         customerLocation: selectedLocation || existingOrder.customerLocation,
+        adminUsername: existingOrder.adminUsername || currentUser?.username || 'admin',
         items: mergedItems,
         totalItems: mergedItems.reduce((sum, item) => sum + item.qty, 0)
       };
@@ -657,6 +711,7 @@ export default function App() {
         date: new Date().toLocaleString('id-ID'),
         customerName: orderName,
         customerLocation: selectedLocation,
+        adminUsername: currentUser?.username || 'admin',
         items: [...cart],
         totalItems: cart.reduce((sum, item) => sum + item.qty, 0)
       };
@@ -672,10 +727,24 @@ export default function App() {
           date: finalOrder.date,
           customer_name: finalOrder.customerName,
           customer_location: finalOrder.customerLocation,
+          admin_username: finalOrder.adminUsername,
           total_items: finalOrder.totalItems,
           items: finalOrder.items
         });
-        if (error) console.error("Supabase upsert error:", error);
+        if (error) {
+          console.error("Supabase upsert error:", error);
+          // Fallback jika database Supabase belum ditambahkan kolom admin_username
+          if (error.message?.includes('admin_username')) {
+            await supabase.from('cimpui_orders').upsert({
+              id: finalOrder.id,
+              date: finalOrder.date,
+              customer_name: finalOrder.customerName,
+              customer_location: finalOrder.customerLocation,
+              total_items: finalOrder.totalItems,
+              items: finalOrder.items
+            });
+          }
+        }
       } catch (err) {
         console.error("Failed to save to supabase", err);
       }
@@ -696,6 +765,12 @@ export default function App() {
     const orderToEdit = history.find(o => o.id === orderId);
     if (!orderToEdit) return;
     
+    // Keamanan: Jika bukan SUPER_ADMIN, pastikan pesanan adalah milik admin tersebut
+    if (currentUser?.role !== 'SUPER_ADMIN' && (orderToEdit.adminUsername || 'admin') !== currentUser?.username) {
+      alert("Anda hanya dapat mengedit pesanan yang Anda masukkan sendiri.");
+      return;
+    }
+
     if (cart.length > 0) {
       if (!window.confirm("Ada pesanan yang belum disimpan di Keranjang bagian Menu. Yakin ingin menimpanya untuk mengedit riwayat ini?")) return;
     }
@@ -721,6 +796,7 @@ export default function App() {
   };
 
   const handleResetAllOrders = async () => {
+    if (!currentUser) return;
     if (resetCode.trim() !== 'dayatlagi') {
       setResetError("Kode verifikasi salah! Masukkan 'dayatlagi'");
       return;
@@ -730,19 +806,50 @@ export default function App() {
     setResetError('');
 
     try {
-      // Hapus seluruh transaksi di Supabase
-      const { error } = await supabase
-        .from('cimpui_orders')
-        .delete()
-        .neq('id', '___non_existent___');
+      if (currentUser.role !== 'SUPER_ADMIN') {
+        // HANYA reset pesanan milik akun admin yang sedang login
+        const { error } = await supabase
+          .from('cimpui_orders')
+          .delete()
+          .eq('admin_username', currentUser.username);
 
-      if (error) {
-        console.error("Supabase reset error:", error);
+        if (error) console.error("Supabase reset error:", error);
+
+        setHistory(prev => {
+          const remaining = prev.filter(o => (o.adminUsername || 'admin') !== currentUser.username);
+          localStorage.setItem('dapur_mama_history', JSON.stringify(remaining));
+          return remaining;
+        });
+      } else {
+        // SUPER ADMIN:
+        if (selectedAdminFilter !== 'ALL') {
+          // Reset hanya admin yang sedang difilter
+          const { error } = await supabase
+            .from('cimpui_orders')
+            .delete()
+            .eq('admin_username', selectedAdminFilter);
+
+          if (error) console.error("Supabase reset error:", error);
+
+          setHistory(prev => {
+            const remaining = prev.filter(o => (o.adminUsername || 'admin') !== selectedAdminFilter);
+            localStorage.setItem('dapur_mama_history', JSON.stringify(remaining));
+            return remaining;
+          });
+        } else {
+          // Reset seluruh transaksi
+          const { error } = await supabase
+            .from('cimpui_orders')
+            .delete()
+            .neq('id', '___non_existent___');
+
+          if (error) console.error("Supabase reset error:", error);
+
+          setHistory([]);
+          localStorage.removeItem('dapur_mama_history');
+        }
       }
 
-      // Bersihkan riwayat lokal
-      setHistory([]);
-      localStorage.removeItem('dapur_mama_history');
       setResetSuccess(true);
       setTimeout(() => {
         setResetSuccess(false);
@@ -1036,7 +1143,7 @@ export default function App() {
     const rekapData: Record<string, Record<string, number>> = {};
     const rekapWilayah: Record<string, { totalOrders: number; totalItems: number; items: Record<string, number> }> = {};
     
-    history.forEach(order => {
+    activeHistory.forEach(order => {
       const loc = order.customerLocation || "Batulicin";
       if (!rekapWilayah[loc]) {
         rekapWilayah[loc] = { totalOrders: 0, totalItems: 0, items: {} };
@@ -1057,8 +1164,8 @@ export default function App() {
       ? CATEGORY_ORDER 
       : [rekapFilter];
 
-    const totalOrdersCount = history.length;
-    const totalItemsCount = history.reduce((sum, o) => sum + o.totalItems, 0);
+    const totalOrdersCount = activeHistory.length;
+    const totalItemsCount = activeHistory.reduce((sum, o) => sum + o.totalItems, 0);
 
     return (
       <div className="flex flex-col h-full bg-[#FDFBF7] pb-24 animate-in fade-in slide-in-from-right-4 duration-200">
@@ -1079,12 +1186,47 @@ export default function App() {
               setIsResetModalOpen(true);
             }}
             className="text-xs flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-red-600 bg-red-50 hover:bg-red-100 active:scale-95 transition-all border border-red-200 cursor-pointer"
-            title="Reset Semua Transaksi"
+            title="Reset Data Transaksi"
           >
             <RotateCcw size={13} />
             <span>Reset Data</span>
           </button>
         </div>
+
+        {/* Banner Pemisah Rekapan Per Admin */}
+        {currentUser?.role === 'SUPER_ADMIN' ? (
+          <div className="bg-amber-50/90 px-4 py-2 border-b border-amber-200/70 flex items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 text-xs text-amber-900 font-semibold">
+              <Users size={14} className="text-amber-700" />
+              <span>Filter Rekap Admin:</span>
+            </div>
+            <select
+              value={selectedAdminFilter}
+              onChange={(e) => setSelectedAdminFilter(e.target.value)}
+              className="bg-white border border-amber-300 text-xs font-semibold text-gray-800 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer shadow-2xs"
+            >
+              <option value="ALL">Semua Admin ({history.length} pesanan)</option>
+              {adminOptions.map(adm => {
+                const count = history.filter(o => (o.adminUsername || 'admin') === adm.username).length;
+                return (
+                  <option key={adm.username} value={adm.username}>
+                    {adm.label} ({count} pesanan)
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        ) : (
+          <div className="bg-emerald-50 px-4 py-2 border-b border-emerald-100 flex items-center justify-between text-xs text-emerald-900 font-medium shrink-0">
+            <div className="flex items-center gap-1.5 truncate">
+              <User size={13} className="text-emerald-700 shrink-0" />
+              <span className="truncate">Rekap Akun: <strong>{currentUser?.name}</strong> (@{currentUser?.username})</span>
+            </div>
+            <span className="text-[10px] text-emerald-700 bg-emerald-100/90 px-2 py-0.5 rounded-full font-bold shrink-0">
+              Khusus Akun Anda
+            </span>
+          </div>
+        )}
 
         {/* Menu Pilihan Rekap: Semua, Wilayah, Kategori */}
         <div className="flex px-4 py-2.5 gap-2 bg-[#FDFBF7] overflow-x-auto no-scrollbar border-b border-[#E0DCCF]/50">
@@ -1125,7 +1267,7 @@ export default function App() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-4 pb-12 space-y-6">
-          {history.length === 0 ? (
+          {activeHistory.length === 0 ? (
             <div className="flex flex-col items-center justify-center text-gray-400 p-8 text-center min-h-[50vh]">
               <ClipboardList size={64} className="mb-4 opacity-50" />
               <p className="text-lg font-serif">Belum ada data untuk direkap.</p>
@@ -1199,14 +1341,14 @@ export default function App() {
   };
 
   const renderHistory = () => {
-    const filteredHistory = history.filter(order => 
+    const filteredHistory = activeHistory.filter(order => 
       order.customerName.toLowerCase().includes(historySearch.toLowerCase()) ||
       (order.customerLocation && order.customerLocation.toLowerCase().includes(historySearch.toLowerCase()))
     );
 
     return (
       <div className="flex flex-col h-full bg-[#FDFBF7] pb-24 animate-in fade-in slide-in-from-right-4 duration-200">
-        <div className="p-4 bg-white shadow-xs mb-3 flex flex-col gap-3 sticky top-0 z-10">
+        <div className="p-4 bg-white shadow-xs border-b border-gray-100 flex flex-col gap-3 sticky top-0 z-10">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
               <HistoryIcon className="text-[#8A9A5B]" /> Riwayat Transaksi
@@ -1219,10 +1361,10 @@ export default function App() {
                 setIsResetModalOpen(true);
               }}
               className="text-xs flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-semibold text-red-600 bg-red-50 hover:bg-red-100 active:scale-95 transition-all border border-red-200 cursor-pointer"
-              title="Reset Semua Transaksi"
+              title={currentUser?.role === 'SUPER_ADMIN' ? 'Reset Semua Transaksi' : 'Reset Riwayat Saya'}
             >
               <Trash2 size={13} />
-              <span>Reset Semua</span>
+              <span>{currentUser?.role === 'SUPER_ADMIN' ? 'Reset Data' : 'Reset Riwayat Saya'}</span>
             </button>
           </div>
           
@@ -1248,7 +1390,42 @@ export default function App() {
           </div>
         </div>
 
-        {history.length === 0 ? (
+        {/* Banner Pemisah Riwayat Per Admin */}
+        {currentUser?.role === 'SUPER_ADMIN' ? (
+          <div className="bg-amber-50/90 px-4 py-2 border-b border-amber-200/70 flex items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 text-xs text-amber-900 font-semibold">
+              <Users size={14} className="text-amber-700" />
+              <span>Filter Riwayat Admin:</span>
+            </div>
+            <select
+              value={selectedAdminFilter}
+              onChange={(e) => setSelectedAdminFilter(e.target.value)}
+              className="bg-white border border-amber-300 text-xs font-semibold text-gray-800 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer shadow-2xs"
+            >
+              <option value="ALL">Semua Admin ({history.length} pesanan)</option>
+              {adminOptions.map(adm => {
+                const count = history.filter(o => (o.adminUsername || 'admin') === adm.username).length;
+                return (
+                  <option key={adm.username} value={adm.username}>
+                    {adm.label} ({count} pesanan)
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        ) : (
+          <div className="bg-emerald-50 px-4 py-2 border-b border-emerald-100 flex items-center justify-between text-xs text-emerald-900 font-medium shrink-0">
+            <div className="flex items-center gap-1.5 truncate">
+              <User size={13} className="text-emerald-700 shrink-0" />
+              <span className="truncate">Riwayat Akun: <strong>{currentUser?.name}</strong> (@{currentUser?.username})</span>
+            </div>
+            <span className="text-[10px] text-emerald-700 bg-emerald-100/90 px-2 py-0.5 rounded-full font-bold shrink-0">
+              Khusus Akun Anda
+            </span>
+          </div>
+        )}
+
+        {activeHistory.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-gray-400 p-8 text-center">
             <HistoryIcon size={64} className="mb-4 opacity-50" />
             <p className="text-lg font-serif">Belum ada riwayat pesanan.</p>
@@ -1259,18 +1436,24 @@ export default function App() {
             <p className="text-lg font-serif">Pesanan tidak ditemukan.</p>
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto px-4 space-y-3.5">
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3.5">
             {filteredHistory.map((order) => (
               <div key={order.id} className="bg-white rounded-2xl p-4 shadow-xs border border-gray-100 relative group">
                 <div className="flex justify-between items-start mb-3 border-b border-gray-50 pb-2.5">
                   <div>
                     <h3 className="font-serif font-bold text-base sm:text-lg text-[#4E4E4E]">{order.customerName}</h3>
-                    <div className="flex items-center gap-2 mt-0.5">
+                    <div className="flex items-center flex-wrap gap-2 mt-0.5">
                       <span className="text-[11px] text-gray-400">{order.date}</span>
                       {order.customerLocation && (
                         <span className="text-[10px] bg-orange-50 text-[#C04000] font-semibold px-2 py-0.5 rounded-md border border-[#C04000]/20 flex items-center gap-0.5">
                           <MapPin size={10} />
                           <span>{order.customerLocation}</span>
+                        </span>
+                      )}
+                      {currentUser?.role === 'SUPER_ADMIN' && (
+                        <span className="text-[10px] bg-emerald-50 text-emerald-800 font-semibold px-2 py-0.5 rounded-md border border-emerald-200/60 flex items-center gap-0.5">
+                          <User size={10} />
+                          <span>@{order.adminUsername || 'admin'}</span>
                         </span>
                       )}
                     </div>
@@ -1777,7 +1960,19 @@ export default function App() {
             ) : (
               <div>
                 <p className="text-xs text-gray-600 leading-relaxed mb-4 bg-red-50 p-3 rounded-xl border border-red-100">
-                  <strong>Peringatan:</strong> Seluruh riwayat transaksi dan rekap akan dihapus permanen dari aplikasi dan database Supabase.
+                  {currentUser?.role !== 'SUPER_ADMIN' ? (
+                    <>
+                      <strong>Peringatan Akun @{currentUser?.username}:</strong> Seluruh riwayat transaksi & rekapan yang Anda masukkan akan dihapus permanen. Transaksi admin lain tetap aman dan tidak akan terhapus.
+                    </>
+                  ) : selectedAdminFilter !== 'ALL' ? (
+                    <>
+                      <strong>Peringatan:</strong> Seluruh riwayat transaksi & rekapan untuk admin <strong>@{selectedAdminFilter}</strong> akan dihapus permanen dari database Supabase.
+                    </>
+                  ) : (
+                    <>
+                      <strong>Peringatan Super Admin:</strong> Seluruh riwayat transaksi SEMUA admin akan dihapus permanen dari aplikasi dan database Supabase.
+                    </>
+                  )}
                 </p>
 
                 <div className="mb-4">

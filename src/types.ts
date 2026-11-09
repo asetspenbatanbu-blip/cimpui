@@ -15,6 +15,7 @@ export interface Order {
   date: string;
   customerName: string;
   customerLocation: string;
+  adminUsername?: string;
   items: CartItem[];
   totalItems: number;
 }

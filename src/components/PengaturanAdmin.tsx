@@ -42,12 +42,13 @@ export const SUPABASE_SQL_SCRIPT = `-- =========================================
 -- (Catatan: Daftar Wilayah disimpan mandiri di memori lokal masing-masing perangkat / localStorage)
 -- ==========================================
 
--- 1. TABEL PESANAN (cimpui_orders)
+-- 1. TABEL PESANAN (cimpui_orders) DENGAN PEMISAH ADMIN
 create table if not exists public.cimpui_orders (
   id text primary key,
   date text not null,
   customer_name text not null,
   customer_location text default 'Batulicin',
+  admin_username text default 'admin',
   total_items integer default 0,
   items jsonb not null default '[]'::jsonb,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
@@ -63,6 +64,12 @@ create policy "Allow public update access on cimpui_orders"
   on public.cimpui_orders for update using (true);
 create policy "Allow public delete access on cimpui_orders"
   on public.cimpui_orders for delete using (true);
+
+-- ==============================================================================
+-- ⚡ JIKA TABEL cimpui_orders SUDAH ADA SEBELUMNYA DI SUPABASE:
+-- Jalankan perintah ALTER 1 baris ini agar rekapan terpisah per admin:
+-- alter table public.cimpui_orders add column if not exists admin_username text default 'admin';
+-- ==============================================================================
 
 -- 2. TABEL AKUN ADMIN (cimpui_admins)
 create table if not exists public.cimpui_admins (
@@ -139,6 +146,7 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
   // Supabase SQL Modal state
   const [showSqlModal, setShowSqlModal] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+  const [isMigrationCopied, setIsMigrationCopied] = useState(false);
 
   // Supabase test connection state
   const [testingConnection, setTestingConnection] = useState(false);
@@ -251,17 +259,23 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
     setTestingConnection(true);
     setTestResult(null);
     try {
-      const ordersRes = await supabase.from('cimpui_orders').select('id').limit(1);
+      const ordersRes = await supabase.from('cimpui_orders').select('id, admin_username').limit(1);
       const adminsRes = await supabase.from('cimpui_admins').select('username').limit(1);
 
       if (!ordersRes.error && !adminsRes.error) {
         setTestResult({
           success: true,
-          message: 'Tabel cimpui_orders & cimpui_admins aktif dan berhasil merespons permintaan!'
+          message: 'Tabel cimpui_orders & cimpui_admins aktif! Kolom admin_username siap memisahkan rekapan per admin.'
         });
       } else {
         const errList: string[] = [];
-        if (ordersRes.error) errList.push(`cimpui_orders: ${ordersRes.error.message}`);
+        if (ordersRes.error) {
+          if (ordersRes.error.message?.includes('admin_username')) {
+            errList.push('Kolom admin_username belum ada di tabel cimpui_orders (Gunakan tombol "Salin 1 Baris SQL Update" di bawah).');
+          } else {
+            errList.push(`cimpui_orders: ${ordersRes.error.message}`);
+          }
+        }
         if (adminsRes.error) errList.push(`cimpui_admins: ${adminsRes.error.message}`);
 
         setTestResult({
@@ -286,6 +300,16 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
       setTimeout(() => setIsCopied(false), 2000);
     } catch (err) {
       console.error("Gagal menyalin SQL:", err);
+    }
+  };
+
+  const handleCopyMigrationSql = async () => {
+    try {
+      await navigator.clipboard.writeText("ALTER TABLE public.cimpui_orders ADD COLUMN IF NOT EXISTS admin_username text DEFAULT 'admin';");
+      setIsMigrationCopied(true);
+      setTimeout(() => setIsMigrationCopied(false), 2500);
+    } catch (err) {
+      console.error("Gagal menyalin SQL migrasi:", err);
     }
   };
 
@@ -615,6 +639,47 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
               <Copy size={13} />
               <span>Salin Skrip SQL</span>
             </button>
+          </div>
+        </div>
+
+        {/* Banner Pemisah Rekapan Per Admin di Supabase */}
+        <div className="bg-amber-50/70 rounded-2xl p-4 border border-amber-200/80 shadow-2xs">
+          <div className="flex items-start gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
+              <ShieldCheck size={17} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between">
+                <h4 className="font-serif font-bold text-sm text-gray-800 leading-snug">
+                  Pemisah Rekapan Per Admin
+                </h4>
+                <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full">
+                  Update Supabase
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-600 mt-1 leading-relaxed">
+                Agar rekapan yang dimasukkan Admin A tidak terbaca di Admin B, jalankan 1 perintah SQL ini di menu <strong>SQL Editor</strong> Supabase:
+              </p>
+              <div className="mt-2 p-2 bg-gray-900 rounded-xl text-emerald-400 font-mono text-[10px] break-all select-all">
+                ALTER TABLE public.cimpui_orders ADD COLUMN IF NOT EXISTS admin_username text DEFAULT 'admin';
+              </div>
+              <button
+                onClick={handleCopyMigrationSql}
+                className="mt-2.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                {isMigrationCopied ? (
+                  <>
+                    <Check size={13} />
+                    <span>Perintah SQL Berhasil Disalin!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={13} />
+                    <span>Salin 1 Baris SQL Update Ini</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
 
