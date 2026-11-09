@@ -38,7 +38,8 @@ interface PengaturanAdminProps {
 
 export const SUPABASE_SQL_SCRIPT = `-- ==========================================
 -- SKRIP SQL SUPABASE: DAPUR MAMA RARALITA
--- Tabel: cimpui_orders, cimpui_admins & cimpui_menu
+-- Tabel: cimpui_orders, cimpui_admins, & cimpui_menu
+-- (Catatan: Daftar Wilayah disimpan mandiri di memori lokal masing-masing perangkat / localStorage)
 -- ==========================================
 
 -- 1. TABEL PESANAN (cimpui_orders)
@@ -101,7 +102,7 @@ create policy "Allow public update access on cimpui_menu"
 create policy "Allow public delete access on cimpui_menu"
   on public.cimpui_menu for delete using (true);
 
--- 4. AKTIFKAN REALTIME UNTUK SEMUA TABEL
+-- 4. AKTIFKAN REALTIME UNTUK PESANAN, ADMIN, DAN MENU
 alter publication supabase_realtime add table public.cimpui_orders;
 alter publication supabase_realtime add table public.cimpui_admins;
 alter publication supabase_realtime add table public.cimpui_menu;`;

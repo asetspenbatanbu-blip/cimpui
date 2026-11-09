@@ -17,7 +17,9 @@ import {
   RotateCcw,
   ShieldCheck,
   MapPin,
-  ChevronDown
+  ChevronDown,
+  LogOut,
+  Save
 } from 'lucide-react';
 import { Category, AppTab, RekapFilter, CartItem, Order, AdminUser } from './types';
 import { LoginScreen } from './components/LoginScreen';
@@ -194,6 +196,10 @@ export default function App() {
   const [isResetting, setIsResetting] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
 
+  // Modal Konfirmasi Keluar State: "Apakah Anda ingin keluar?" -> "Save & Exit" vs "Resume"
+  const [isExitModalOpen, setIsExitModalOpen] = useState(false);
+  const [isSavingAndExiting, setIsSavingAndExiting] = useState(false);
+
   // Simpan custom menu jika ada perubahan lokal dan sinkronkan ke Supabase jika tabel ada
   useEffect(() => {
     localStorage.setItem('dapur_mama_custom_menu', JSON.stringify(menuItems));
@@ -272,10 +278,62 @@ export default function App() {
     };
   }, []);
 
-  // Simpan locations jika ada perubahan
+  // Simpan locations jika ada perubahan lokal
   useEffect(() => {
     localStorage.setItem('dapur_mama_locations', JSON.stringify(locations));
   }, [locations]);
+
+  // Sinkronisasi realtime multi-tab lokal untuk Wilayah
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'dapur_mama_locations' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setLocations(parsed);
+          }
+        } catch {}
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  // Tangani tombol Back di HP / browser agar memunculkan konfirmasi keluar
+  useEffect(() => {
+    if (!currentUser) return;
+    window.history.pushState({ app: 'dapur-mama-raralita' }, '');
+
+    const handlePopState = (e: PopStateEvent) => {
+      e.preventDefault();
+      setIsExitModalOpen(true);
+      window.history.pushState({ app: 'dapur-mama-raralita' }, '');
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [currentUser]);
+
+  // Keamanan: Jika admin yang login BUKAN Super Admin, pastikan tab Pengaturan tidak dapat dibuka
+  useEffect(() => {
+    if (currentUser && currentUser.role !== 'SUPER_ADMIN' && activeTab === 'PENGATURAN') {
+      setActiveTab('MENU');
+    }
+  }, [currentUser, activeTab]);
+
+  // Muat keranjang yang tersimpan dari 'Save & Exit' sebelumnya jika ada
+  useEffect(() => {
+    try {
+      const savedCart = localStorage.getItem('dapur_mama_saved_cart');
+      if (savedCart) {
+        const parsed = JSON.parse(savedCart);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setCart(parsed);
+          localStorage.removeItem('dapur_mama_saved_cart');
+        }
+      }
+    } catch {}
+  }, []);
 
   // Load history on mount and subscribe to realtime updates
   useEffect(() => {
@@ -344,6 +402,30 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem('dapur_mama_auth');
     setCurrentUser(null);
+  };
+
+  const handleSaveAndExit = async () => {
+    setIsSavingAndExiting(true);
+    try {
+      // 1. Simpan keranjang aktif jika ada isinya
+      if (cart.length > 0) {
+        localStorage.setItem('dapur_mama_saved_cart', JSON.stringify(cart));
+      }
+      // 2. Simpan menu dan wilayah ke localStorage (memori lokal masing-masing perangkat)
+      localStorage.setItem('dapur_mama_custom_menu', JSON.stringify(menuItems));
+      localStorage.setItem('dapur_mama_locations', JSON.stringify(locations));
+
+      // 3. Logout akun
+      localStorage.removeItem('dapur_mama_auth');
+      setCurrentUser(null);
+      setIsExitModalOpen(false);
+    } finally {
+      setIsSavingAndExiting(false);
+    }
+  };
+
+  const handleResume = () => {
+    setIsExitModalOpen(false);
   };
 
   const handleForceSyncMenu = async () => {
@@ -682,9 +764,11 @@ export default function App() {
       alert("Wilayah ini sudah ada di daftar.");
       return;
     }
-    setLocations(prev => [...prev, trimmed]);
+    const updated = [...locations, trimmed];
+    setLocations(updated);
     setSelectedLocation(trimmed);
     setNewLocationInput('');
+    localStorage.setItem('dapur_mama_locations', JSON.stringify(updated));
   };
 
   const handleDeleteLocation = (locToDelete: string) => {
@@ -692,10 +776,12 @@ export default function App() {
       alert("Harus menyisakan minimal 1 wilayah.");
       return;
     }
-    setLocations(prev => prev.filter(l => l !== locToDelete));
+    const updated = locations.filter(l => l !== locToDelete);
+    setLocations(updated);
     if (selectedLocation === locToDelete) {
-      setSelectedLocation(locations.find(l => l !== locToDelete) || locations[0]);
+      setSelectedLocation(updated[0] || "Batulicin");
     }
+    localStorage.setItem('dapur_mama_locations', JSON.stringify(updated));
   };
 
   // If not authenticated, render LoginScreen
@@ -1235,21 +1321,35 @@ export default function App() {
           </h1>
           <p className="text-[10px] opacity-90 uppercase tracking-widest mt-0.5">Cita Rasa Rumah di Setiap Gigitan</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           <div className="text-right hidden sm:block">
             <span className="text-xs font-bold block leading-tight">{currentUser.name}</span>
             <span className="text-[10px] text-white/80">@{currentUser.username}</span>
           </div>
+
+          {/* Tombol Pengaturan Admin: HANYA untuk Super Admin */}
+          {currentUser.role === 'SUPER_ADMIN' && (
+            <button
+              onClick={() => setActiveTab('PENGATURAN')}
+              className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                activeTab === 'PENGATURAN'
+                  ? 'bg-white text-[#8A9A5B] shadow-sm'
+                  : 'bg-white/15 text-white hover:bg-white/25'
+              }`}
+              title="Pengaturan Admin"
+            >
+              <ShieldCheck size={20} />
+            </button>
+          )}
+
+          {/* Tombol Kecil Keluar */}
           <button
-            onClick={() => setActiveTab('PENGATURAN')}
-            className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
-              activeTab === 'PENGATURAN'
-                ? 'bg-white text-[#8A9A5B] shadow-sm'
-                : 'bg-white/15 text-white hover:bg-white/25'
-            }`}
-            title="Pengaturan Admin"
+            onClick={() => setIsExitModalOpen(true)}
+            className="h-9 px-2.5 rounded-xl bg-white/15 hover:bg-white/25 active:scale-95 text-white text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+            title="Keluar dari Aplikasi"
           >
-            <ShieldCheck size={20} />
+            <LogOut size={16} />
+            <span className="hidden xs:inline">Keluar</span>
           </button>
         </div>
       </header>
@@ -1259,7 +1359,7 @@ export default function App() {
         {activeTab === 'MENU' && renderMenu()}
         {activeTab === 'HISTORY' && renderHistory()}
         {activeTab === 'REKAP' && renderRekap()}
-        {activeTab === 'PENGATURAN' && (
+        {activeTab === 'PENGATURAN' && currentUser.role === 'SUPER_ADMIN' && (
           <PengaturanAdmin
             currentUser={currentUser}
             onLogout={handleLogout}
@@ -1762,14 +1862,60 @@ export default function App() {
           <span>Rekap</span>
         </button>
 
-        <button 
-          onClick={() => setActiveTab('PENGATURAN')} 
-          className={`flex flex-col items-center gap-1 w-14 transition-colors cursor-pointer ${activeTab === 'PENGATURAN' ? 'text-[#8A9A5B] font-bold' : 'text-gray-400 hover:text-[#4E4E4E]'}`}
-        >
-          <ShieldCheck size={22} strokeWidth={activeTab === 'PENGATURAN' ? 2.5 : 2} />
-          <span>Admin</span>
-        </button>
+        {/* Tombol Menu Admin: HANYA untuk Super Admin (Tersembunyi jika login sebagai Admin biasa) */}
+        {currentUser.role === 'SUPER_ADMIN' && (
+          <button 
+            onClick={() => setActiveTab('PENGATURAN')} 
+            className={`flex flex-col items-center gap-1 w-14 transition-colors cursor-pointer ${activeTab === 'PENGATURAN' ? 'text-[#8A9A5B] font-bold' : 'text-gray-400 hover:text-[#4E4E4E]'}`}
+          >
+            <ShieldCheck size={22} strokeWidth={activeTab === 'PENGATURAN' ? 2.5 : 2} />
+            <span>Admin</span>
+          </button>
+        )}
       </nav>
+
+      {/* Modal Konfirmasi Keluar: "Apakah Anda ingin keluar?" -> "Save & Exit" vs "Resume" */}
+      {isExitModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+            onClick={handleResume}
+          />
+          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 overflow-hidden z-10 animate-in zoom-in-95 duration-200 border border-[#E0DCCF] text-center">
+            <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto mb-3 shadow-xs">
+              <LogOut size={26} />
+            </div>
+
+            <h3 className="font-serif font-bold text-lg text-gray-800 mb-1.5">
+              Apakah Anda ingin keluar?
+            </h3>
+            <p className="text-xs text-gray-600 mb-6 leading-relaxed">
+              Pilih <strong className="text-[#8A9A5B]">Save & Exit</strong> untuk menyimpan data transaksi dan keluar dari aplikasi, atau <strong className="text-gray-700">Resume</strong> untuk kembali melanjutkan aktivitas.
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <button
+                type="button"
+                disabled={isSavingAndExiting}
+                onClick={handleSaveAndExit}
+                className="flex-1 py-3 px-4 rounded-xl bg-[#8A9A5B] hover:bg-[#7a8950] text-white font-bold text-xs active:scale-95 transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <Save size={15} />
+                <span>{isSavingAndExiting ? 'Menyimpan...' : 'Save & Exit'}</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={isSavingAndExiting}
+                onClick={handleResume}
+                className="flex-1 py-3 px-4 rounded-xl border border-[#E0DCCF] text-gray-700 font-bold text-xs hover:bg-[#F5F1E9] active:scale-95 transition-all cursor-pointer"
+              >
+                Resume
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CSS safe area utilities padding for modern mobile browsers */}
       <style>{`
