@@ -42,13 +42,14 @@ export const SUPABASE_SQL_SCRIPT = `-- =========================================
 -- (Catatan: Daftar Wilayah disimpan mandiri di memori lokal masing-masing perangkat / localStorage)
 -- ==========================================
 
--- 1. TABEL PESANAN (cimpui_orders) DENGAN PEMISAH ADMIN
+-- 1. TABEL PESANAN (cimpui_orders) DENGAN PEMISAH ADMIN & STATUS ANTAR
 create table if not exists public.cimpui_orders (
   id text primary key,
   date text not null,
   customer_name text not null,
   customer_location text default 'Batulicin',
   admin_username text default 'admin',
+  status text default 'PROSES',
   total_items integer default 0,
   items jsonb not null default '[]'::jsonb,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
@@ -67,8 +68,9 @@ create policy "Allow public delete access on cimpui_orders"
 
 -- ==============================================================================
 -- ⚡ JIKA TABEL cimpui_orders SUDAH ADA SEBELUMNYA DI SUPABASE:
--- Jalankan perintah ALTER 1 baris ini agar rekapan terpisah per admin:
+-- Jalankan perintah ALTER ini agar rekapan terpisah per admin dan status antar aktif:
 -- alter table public.cimpui_orders add column if not exists admin_username text default 'admin';
+-- alter table public.cimpui_orders add column if not exists status text default 'PROSES';
 -- ==============================================================================
 
 -- 2. TABEL AKUN ADMIN (cimpui_admins)
@@ -305,7 +307,9 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
 
   const handleCopyMigrationSql = async () => {
     try {
-      await navigator.clipboard.writeText("ALTER TABLE public.cimpui_orders ADD COLUMN IF NOT EXISTS admin_username text DEFAULT 'admin';");
+      const sqlText = `ALTER TABLE public.cimpui_orders ADD COLUMN IF NOT EXISTS admin_username text DEFAULT 'admin';
+ALTER TABLE public.cimpui_orders ADD COLUMN IF NOT EXISTS status text DEFAULT 'PROSES';`;
+      await navigator.clipboard.writeText(sqlText);
       setIsMigrationCopied(true);
       setTimeout(() => setIsMigrationCopied(false), 2500);
     } catch (err) {
@@ -658,10 +662,11 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
                 </span>
               </div>
               <p className="text-[11px] text-gray-600 mt-1 leading-relaxed">
-                Agar rekapan yang dimasukkan Admin A tidak terbaca di Admin B, jalankan 1 perintah SQL ini di menu <strong>SQL Editor</strong> Supabase:
+                Agar rekapan terpisah per admin dan status pesanan (Proses / Selesai) aktif di database Supabase, jalankan perintah ini di menu <strong>SQL Editor</strong>:
               </p>
-              <div className="mt-2 p-2 bg-gray-900 rounded-xl text-emerald-400 font-mono text-[10px] break-all select-all">
-                ALTER TABLE public.cimpui_orders ADD COLUMN IF NOT EXISTS admin_username text DEFAULT 'admin';
+              <div className="mt-2 p-2.5 bg-gray-900 rounded-xl text-emerald-400 font-mono text-[10px] space-y-1 select-all">
+                <div>ALTER TABLE public.cimpui_orders ADD COLUMN IF NOT EXISTS admin_username text DEFAULT 'admin';</div>
+                <div>ALTER TABLE public.cimpui_orders ADD COLUMN IF NOT EXISTS status text DEFAULT 'PROSES';</div>
               </div>
               <button
                 onClick={handleCopyMigrationSql}
@@ -675,7 +680,7 @@ export const PengaturanAdmin: React.FC<PengaturanAdminProps> = ({
                 ) : (
                   <>
                     <Copy size={13} />
-                    <span>Salin 1 Baris SQL Update Ini</span>
+                    <span>Salin Perintah SQL Update Ini</span>
                   </>
                 )}
               </button>

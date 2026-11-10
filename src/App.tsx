@@ -21,9 +21,11 @@ import {
   LogOut,
   Save,
   Users,
-  User
+  User,
+  Clock,
+  Truck
 } from 'lucide-react';
-import { Category, AppTab, RekapFilter, CartItem, Order, AdminUser } from './types';
+import { Category, AppTab, RekapFilter, CartItem, Order, AdminUser, OrderStatus } from './types';
 import { LoginScreen } from './components/LoginScreen';
 import { PengaturanAdmin } from './components/PengaturanAdmin';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
@@ -173,16 +175,30 @@ export default function App() {
 
   // Rekap Filter State
   const [rekapFilter, setRekapFilter] = useState<RekapFilter>('ALL');
+  const [rekapNamaSearch, setRekapNamaSearch] = useState<string>('');
+  const [rekapNamaStatusFilter, setRekapNamaStatusFilter] = useState<'ALL' | 'PROSES' | 'SELESAI'>('ALL');
 
   // Modal Tambah Menu Manual State
   const [isAddMenuModalOpen, setIsAddMenuModalOpen] = useState(false);
   const [targetAddCategory, setTargetAddCategory] = useState<Category>('ROTI_PIZZA');
   const [newMenuName, setNewMenuName] = useState('');
+  const [newMenuSize, setNewMenuSize] = useState('');
 
   // Mode Edit Menu & Modal Edit Item State
   const [isMenuEditMode, setIsMenuEditMode] = useState(false);
   const [isEditMenuModalOpen, setIsEditMenuModalOpen] = useState(false);
-  const [itemToEdit, setItemToEdit] = useState<{ category: Category; oldName: string; newName: string } | null>(null);
+  const [itemToEdit, setItemToEdit] = useState<{ category: Category; oldName: string; newName: string; size?: string } | null>(null);
+
+  // Ukuran Kustom / Opsional per Menu Item State
+  const [itemCustomSizes, setItemCustomSizes] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('dapur_mama_item_sizes');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error("Error loading item custom sizes:", e);
+    }
+    return {};
+  });
 
   // Modal State for Variant
   const [selectedProduct, setSelectedProduct] = useState<SelectedProduct | null>(null);
@@ -356,6 +372,7 @@ export default function App() {
             customerName: d.customer_name,
             customerLocation: d.customer_location || locations[0] || "Batulicin",
             adminUsername: d.admin_username || 'admin',
+            status: (d.status === 'SELESAI' ? 'SELESAI' : 'PROSES') as OrderStatus,
             items: d.items,
             totalItems: d.total_items
           }));
@@ -364,14 +381,26 @@ export default function App() {
           // Fallback to local storage if supabase offline
           const savedLocally = localStorage.getItem('dapur_mama_history');
           if (savedLocally) {
-            setHistory(JSON.parse(savedLocally));
+            const parsed = JSON.parse(savedLocally);
+            if (Array.isArray(parsed)) {
+              setHistory(parsed.map((o: any) => ({
+                ...o,
+                status: (o.status === 'SELESAI' ? 'SELESAI' : 'PROSES') as OrderStatus
+              })));
+            }
           }
         }
       } catch (err) {
         console.error("Error fetching from supabase:", err);
         const savedLocally = localStorage.getItem('dapur_mama_history');
         if (savedLocally) {
-          setHistory(JSON.parse(savedLocally));
+          const parsed = JSON.parse(savedLocally);
+          if (Array.isArray(parsed)) {
+            setHistory(parsed.map((o: any) => ({
+              ...o,
+              status: (o.status === 'SELESAI' ? 'SELESAI' : 'PROSES') as OrderStatus
+            })));
+          }
         }
       }
     };
@@ -467,6 +496,7 @@ export default function App() {
       // 2. Simpan menu dan wilayah ke localStorage (memori lokal masing-masing perangkat)
       localStorage.setItem('dapur_mama_custom_menu', JSON.stringify(menuItems));
       localStorage.setItem('dapur_mama_locations', JSON.stringify(locations));
+      localStorage.setItem('dapur_mama_item_sizes', JSON.stringify(itemCustomSizes));
 
       // 3. Logout akun
       localStorage.removeItem('dapur_mama_auth');
@@ -513,14 +543,14 @@ export default function App() {
 
   const handleOpenProduct = (name: string, category: Category) => {
     setSelectedProduct({ name, category });
-    const availableSizes = CATEGORY_CONFIG[category]?.sizes || ["1 Pcs"];
-    setSelectedSize(availableSizes[0]);
+    setSelectedSize(''); // Biarkan belum terpilih di awal agar pengguna memilih ukuran secara sengaja
     setSelectedQty(1);
   };
 
   const handleOpenAddMenu = (category: Category) => {
     setTargetAddCategory(category);
     setNewMenuName('');
+    setNewMenuSize('');
     setIsAddMenuModalOpen(true);
   };
 
@@ -535,29 +565,63 @@ export default function App() {
       alert(`Menu "${trimmed}" sudah ada di kategori ${CATEGORY_CONFIG[targetAddCategory].label}.`);
       return;
     }
-    setMenuItems(prev => ({
-      ...prev,
-      [targetAddCategory]: [...(prev[targetAddCategory] || []), trimmed]
-    }));
+    const updatedMenu = {
+      ...menuItems,
+      [targetAddCategory]: [...(menuItems[targetAddCategory] || []), trimmed]
+    };
+    setMenuItems(updatedMenu);
+    localStorage.setItem('dapur_mama_custom_menu', JSON.stringify(updatedMenu));
+
+    const trimmedSize = newMenuSize.trim();
+    if (trimmedSize) {
+      setItemCustomSizes(prev => {
+        const updated = { ...prev, [trimmed]: trimmedSize };
+        localStorage.setItem('dapur_mama_item_sizes', JSON.stringify(updated));
+        return updated;
+      });
+    }
+
     setNewMenuName('');
+    setNewMenuSize('');
     setIsAddMenuModalOpen(false);
   };
 
   const handleDeleteMenuItem = (category: Category, itemName: string) => {
     if (window.confirm(`Hapus "${itemName}" dari daftar menu ${CATEGORY_CONFIG[category].label}?`)) {
-      setMenuItems(prev => ({
-        ...prev,
-        [category]: (prev[category] || []).filter(item => item !== itemName)
-      }));
+      setMenuItems(prev => {
+        const updated = {
+          ...prev,
+          [category]: (prev[category] || []).filter(item => item !== itemName)
+        };
+        localStorage.setItem('dapur_mama_custom_menu', JSON.stringify(updated));
+        return updated;
+      });
+      setItemCustomSizes(prev => {
+        const updated = { ...prev };
+        delete updated[itemName];
+        localStorage.setItem('dapur_mama_item_sizes', JSON.stringify(updated));
+        return updated;
+      });
       setCart(prev => prev.filter(cItem => !(cItem.name === itemName && cItem.category === category)));
     }
   };
 
   const handleOpenEditItem = (category: Category, itemName: string) => {
+    const existingSize = itemCustomSizes[itemName] || '';
+    let baseName = itemName;
+    let initialSize = existingSize;
+    if (!initialSize) {
+      const match = itemName.match(/^(.*?)\s*\((.*?)\)$/);
+      if (match) {
+        baseName = match[1];
+        initialSize = match[2];
+      }
+    }
     setItemToEdit({
       category,
       oldName: itemName,
-      newName: itemName
+      newName: baseName,
+      size: initialSize
     });
     setIsEditMenuModalOpen(true);
   };
@@ -569,26 +633,50 @@ export default function App() {
       alert("Nama menu tidak boleh kosong.");
       return;
     }
-    setMenuItems(prev => {
-      const list = prev[itemToEdit.category] || [];
-      if (trimmed === itemToEdit.oldName) return prev;
-      if (list.some(item => item.toLowerCase() === trimmed.toLowerCase() && item !== itemToEdit.oldName)) {
-        alert(`Menu "${trimmed}" sudah ada di kategori ${CATEGORY_CONFIG[itemToEdit.category].label}.`);
-        return prev;
+    const trimmedSize = itemToEdit.size ? itemToEdit.size.trim() : '';
+
+    const list = menuItems[itemToEdit.category] || [];
+    if (list.some(item => item.toLowerCase() === trimmed.toLowerCase() && item !== itemToEdit.oldName)) {
+      alert(`Menu "${trimmed}" sudah ada di kategori ${CATEGORY_CONFIG[itemToEdit.category].label}.`);
+      return;
+    }
+
+    if (trimmed !== itemToEdit.oldName) {
+      setMenuItems(prev => {
+        const currentList = prev[itemToEdit.category] || [];
+        const updated = {
+          ...prev,
+          [itemToEdit.category]: currentList.map(item => item === itemToEdit.oldName ? trimmed : item)
+        };
+        localStorage.setItem('dapur_mama_custom_menu', JSON.stringify(updated));
+        return updated;
+      });
+    }
+
+    // Simpan atau perbarui ukuran opsional menu
+    setItemCustomSizes(prev => {
+      const updated = { ...prev };
+      if (itemToEdit.oldName !== trimmed) {
+        delete updated[itemToEdit.oldName];
       }
-      return {
-        ...prev,
-        [itemToEdit.category]: list.map(item => item === itemToEdit.oldName ? trimmed : item)
-      };
+      if (trimmedSize) {
+        updated[trimmed] = trimmedSize;
+      } else {
+        delete updated[trimmed];
+      }
+      localStorage.setItem('dapur_mama_item_sizes', JSON.stringify(updated));
+      return updated;
     });
 
     // Update jika item yang diedit sedang ada di keranjang
     setCart(prev => prev.map(cItem => {
       if (cItem.name === itemToEdit.oldName && cItem.category === itemToEdit.category) {
+        const targetSize = trimmedSize || cItem.size;
         return {
           ...cItem,
-          id: `${trimmed}-${cItem.size}`,
-          name: trimmed
+          id: `${trimmed}-${targetSize}`,
+          name: trimmed,
+          size: targetSize
         };
       }
       return cItem;
@@ -601,10 +689,20 @@ export default function App() {
   const handleDeleteItemFromEditModal = () => {
     if (!itemToEdit) return;
     if (window.confirm(`Yakin ingin menghapus "${itemToEdit.oldName}" dari daftar menu ${CATEGORY_CONFIG[itemToEdit.category].label}?`)) {
-      setMenuItems(prev => ({
-        ...prev,
-        [itemToEdit.category]: (prev[itemToEdit.category] || []).filter(item => item !== itemToEdit.oldName)
-      }));
+      setMenuItems(prev => {
+        const updated = {
+          ...prev,
+          [itemToEdit.category]: (prev[itemToEdit.category] || []).filter(item => item !== itemToEdit.oldName)
+        };
+        localStorage.setItem('dapur_mama_custom_menu', JSON.stringify(updated));
+        return updated;
+      });
+      setItemCustomSizes(prev => {
+        const updated = { ...prev };
+        delete updated[itemToEdit.oldName];
+        localStorage.setItem('dapur_mama_item_sizes', JSON.stringify(updated));
+        return updated;
+      });
       setCart(prev => prev.filter(cItem => !(cItem.name === itemToEdit.oldName && cItem.category === itemToEdit.category)));
       setIsEditMenuModalOpen(false);
       setItemToEdit(null);
@@ -612,7 +710,12 @@ export default function App() {
   };
 
   const handleAddToCart = () => {
-    if (!selectedProduct || !selectedSize || selectedQty < 1) return;
+    if (!selectedProduct) return;
+    if (!selectedSize) {
+      alert("Silakan pilih ukuran terlebih dahulu sebelum menambahkan pesanan.");
+      return;
+    }
+    if (selectedQty < 1) return;
     const newItemId = `${selectedProduct.name}-${selectedSize}`;
     
     setCart(prev => {
@@ -695,6 +798,7 @@ export default function App() {
         date: new Date().toLocaleString('id-ID'),
         customerLocation: selectedLocation || existingOrder.customerLocation,
         adminUsername: existingOrder.adminUsername || currentUser?.username || 'admin',
+        status: existingOrder.status || 'PROSES',
         items: mergedItems,
         totalItems: mergedItems.reduce((sum, item) => sum + item.qty, 0)
       };
@@ -712,6 +816,7 @@ export default function App() {
         customerName: orderName,
         customerLocation: selectedLocation,
         adminUsername: currentUser?.username || 'admin',
+        status: 'PROSES',
         items: [...cart],
         totalItems: cart.reduce((sum, item) => sum + item.qty, 0)
       };
@@ -722,28 +827,23 @@ export default function App() {
     // Save to Supabase (Background)
     const saveToDb = async () => {
       try {
-        const { error } = await supabase.from('cimpui_orders').upsert({
+        const payload: any = {
           id: finalOrder.id,
           date: finalOrder.date,
           customer_name: finalOrder.customerName,
           customer_location: finalOrder.customerLocation,
           admin_username: finalOrder.adminUsername,
+          status: finalOrder.status || 'PROSES',
           total_items: finalOrder.totalItems,
           items: finalOrder.items
-        });
+        };
+        const { error } = await supabase.from('cimpui_orders').upsert(payload);
         if (error) {
           console.error("Supabase upsert error:", error);
-          // Fallback jika database Supabase belum ditambahkan kolom admin_username
-          if (error.message?.includes('admin_username')) {
-            await supabase.from('cimpui_orders').upsert({
-              id: finalOrder.id,
-              date: finalOrder.date,
-              customer_name: finalOrder.customerName,
-              customer_location: finalOrder.customerLocation,
-              total_items: finalOrder.totalItems,
-              items: finalOrder.items
-            });
-          }
+          // Fallback jika database Supabase belum ditambahkan kolom admin_username / status
+          delete payload.status;
+          delete payload.admin_username;
+          await supabase.from('cimpui_orders').upsert(payload);
         }
       } catch (err) {
         console.error("Failed to save to supabase", err);
@@ -793,6 +893,47 @@ export default function App() {
       }
     };
     removeFromDb();
+  };
+
+  const handleUpdateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
+    // 1. Update state & localStorage instan
+    setHistory(prev => {
+      const updated = prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o);
+      localStorage.setItem('dapur_mama_history', JSON.stringify(updated));
+      return updated;
+    });
+
+    // 2. Simpan perubahan ke Supabase
+    try {
+      const { error } = await supabase
+        .from('cimpui_orders')
+        .update({ status: newStatus })
+        .eq('id', orderId);
+      if (error) console.error("Gagal update status pesanan di Supabase:", error);
+    } catch (err) {
+      console.error("Error updating order status in Supabase:", err);
+    }
+  };
+
+  const handleUpdateCustomerOrdersStatus = async (custName: string, newStatus: OrderStatus) => {
+    const matching = activeHistory.filter(o => o.customerName === custName);
+    if (matching.length === 0) return;
+    const matchingIds = matching.map(o => o.id);
+
+    setHistory(prev => {
+      const updated = prev.map(o => matchingIds.includes(o.id) ? { ...o, status: newStatus } : o);
+      localStorage.setItem('dapur_mama_history', JSON.stringify(updated));
+      return updated;
+    });
+
+    try {
+      await supabase
+        .from('cimpui_orders')
+        .update({ status: newStatus })
+        .in('id', matchingIds);
+    } catch (err) {
+      console.error("Error updating customer orders status in Supabase:", err);
+    }
   };
 
   const handleResetAllOrders = async () => {
@@ -1050,7 +1191,14 @@ export default function App() {
                   isMenuEditMode ? 'border-amber-300 bg-amber-50/20' : 'border-[#E0DCCF]'
                 }`}
               >
-                <span className="font-serif font-bold text-[#4E4E4E] text-xs leading-snug line-clamp-2 pr-2 flex-1">{item}</span>
+                <div className="flex-1 pr-2 min-w-0">
+                  <span className="font-serif font-bold text-[#4E4E4E] text-xs leading-snug line-clamp-2 block">{item}</span>
+                  {itemCustomSizes[item] && (
+                    <span className="inline-block mt-0.5 text-[10px] font-semibold text-[#8A9A5B] bg-[#8A9A5B]/10 px-1.5 py-0.2 rounded-md">
+                      {itemCustomSizes[item]}
+                    </span>
+                  )}
+                </div>
                 {isMenuEditMode ? (
                   <div className="flex items-center gap-1 shrink-0">
                     <button
@@ -1143,6 +1291,19 @@ export default function App() {
     const rekapData: Record<string, Record<string, number>> = {};
     const rekapWilayah: Record<string, { totalOrders: number; totalItems: number; items: Record<string, number> }> = {};
     
+    // Data Rekap per Nama Pemesan & Status Antar
+    const rekapNamaMap: Record<string, {
+      customerName: string;
+      customerLocation: string;
+      latestDate: string;
+      totalOrders: number;
+      totalItems: number;
+      items: Record<string, number>;
+      orders: Order[];
+      isAllSelesai: boolean;
+      isAllProses: boolean;
+    }> = {};
+
     activeHistory.forEach(order => {
       const loc = order.customerLocation || "Batulicin";
       if (!rekapWilayah[loc]) {
@@ -1151,16 +1312,51 @@ export default function App() {
       rekapWilayah[loc].totalOrders += 1;
       rekapWilayah[loc].totalItems += order.totalItems;
 
+      const name = order.customerName?.trim() || "Tanpa Nama";
+      if (!rekapNamaMap[name]) {
+        rekapNamaMap[name] = {
+          customerName: name,
+          customerLocation: loc,
+          latestDate: order.date,
+          totalOrders: 0,
+          totalItems: 0,
+          items: {},
+          orders: [],
+          isAllSelesai: true,
+          isAllProses: true
+        };
+      }
+      const entry = rekapNamaMap[name];
+      entry.totalOrders += 1;
+      entry.totalItems += order.totalItems;
+      entry.orders.push(order);
+      if (order.status !== 'SELESAI') entry.isAllSelesai = false;
+      if (order.status === 'SELESAI') entry.isAllProses = false;
+
       order.items.forEach(item => {
         const key = `${item.name} (${item.size})`;
         if (!rekapData[item.category]) rekapData[item.category] = {};
         rekapData[item.category][key] = (rekapData[item.category][key] || 0) + item.qty;
 
         rekapWilayah[loc].items[key] = (rekapWilayah[loc].items[key] || 0) + item.qty;
+        entry.items[key] = (entry.items[key] || 0) + item.qty;
       });
     });
 
-    const categoriesToDisplay = rekapFilter === 'ALL' || rekapFilter === 'WILAYAH'
+    const rekapNamaList = Object.values(rekapNamaMap).sort((a, b) => a.customerName.localeCompare(b.customerName));
+    const totalProcessingCount = activeHistory.filter(o => o.status !== 'SELESAI').length;
+    const totalCompletedCount = activeHistory.filter(o => o.status === 'SELESAI').length;
+
+    const filteredRekapNamaList = rekapNamaList.filter(entry => {
+      const matchSearch = entry.customerName.toLowerCase().includes(rekapNamaSearch.toLowerCase()) ||
+                          entry.customerLocation.toLowerCase().includes(rekapNamaSearch.toLowerCase());
+      if (!matchSearch) return false;
+      if (rekapNamaStatusFilter === 'PROSES') return !entry.isAllSelesai;
+      if (rekapNamaStatusFilter === 'SELESAI') return entry.isAllSelesai;
+      return true;
+    });
+
+    const categoriesToDisplay = rekapFilter === 'ALL' || rekapFilter === 'WILAYAH' || rekapFilter === 'NAMA'
       ? CATEGORY_ORDER 
       : [rekapFilter];
 
@@ -1228,7 +1424,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Menu Pilihan Rekap: Semua, Wilayah, Kategori */}
+        {/* Menu Pilihan Rekap: Semua, Rekap per Nama, Wilayah, Kategori */}
         <div className="flex px-4 py-2.5 gap-2 bg-[#FDFBF7] overflow-x-auto no-scrollbar border-b border-[#E0DCCF]/50">
           <button
             onClick={() => setRekapFilter('ALL')}
@@ -1239,6 +1435,24 @@ export default function App() {
             }`}
           >
             Semua Rekap
+          </button>
+          <button
+            onClick={() => setRekapFilter('NAMA')}
+            className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all shrink-0 cursor-pointer flex items-center gap-1.5 ${
+              rekapFilter === 'NAMA'
+                ? 'bg-[#8A9A5B] text-white shadow-xs'
+                : 'bg-[#EAE7DC] text-[#4E4E4E] hover:bg-[#dedad0]'
+            }`}
+          >
+            <User size={12} />
+            <span>Rekap per Nama</span>
+            {totalProcessingCount > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                rekapFilter === 'NAMA' ? 'bg-amber-400 text-amber-950' : 'bg-amber-200 text-amber-900'
+              }`}>
+                {totalProcessingCount}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setRekapFilter('WILAYAH')}
@@ -1272,6 +1486,176 @@ export default function App() {
               <ClipboardList size={64} className="mb-4 opacity-50" />
               <p className="text-lg font-serif">Belum ada data untuk direkap.</p>
               <p className="text-xs text-gray-400 mt-1">Buat pesanan pertama melalui tab Menu.</p>
+            </div>
+          ) : rekapFilter === 'NAMA' ? (
+            /* Rekap per Nama Pelanggan dengan Tombol Proses & Selesai */
+            <div className="space-y-3.5">
+              {/* Header Status & Search Filter Rekap Nama */}
+              <div className="bg-white rounded-2xl p-3.5 border border-[#E0DCCF] shadow-xs space-y-3">
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Search size={14} className="text-gray-400" />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Cari nama pemesan atau wilayah..."
+                    value={rekapNamaSearch}
+                    onChange={(e) => setRekapNamaSearch(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2 border border-[#E0DCCF] rounded-xl focus:outline-none focus:border-[#8A9A5B] bg-[#FDFBF7] text-xs text-gray-700 font-medium placeholder-gray-400"
+                  />
+                  {rekapNamaSearch && (
+                    <button
+                      onClick={() => setRekapNamaSearch('')}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 cursor-pointer"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Filter Status: Semua, Proses (Belum Diantar), Selesai */}
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-0.5">
+                  <button
+                    onClick={() => setRekapNamaStatusFilter('ALL')}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                      rekapNamaStatusFilter === 'ALL'
+                        ? 'bg-gray-800 text-white shadow-2xs'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    Semua ({rekapNamaList.length})
+                  </button>
+                  <button
+                    onClick={() => setRekapNamaStatusFilter('PROSES')}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1 cursor-pointer ${
+                      rekapNamaStatusFilter === 'PROSES'
+                        ? 'bg-amber-500 text-white shadow-2xs'
+                        : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+                    }`}
+                  >
+                    <Clock size={12} />
+                    <span>Belum Diantar ({totalProcessingCount})</span>
+                  </button>
+                  <button
+                    onClick={() => setRekapNamaStatusFilter('SELESAI')}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1 cursor-pointer ${
+                      rekapNamaStatusFilter === 'SELESAI'
+                        ? 'bg-emerald-600 text-white shadow-2xs'
+                        : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+                    }`}
+                  >
+                    <CheckCircle2 size={12} />
+                    <span>Selesai ({totalCompletedCount})</span>
+                  </button>
+                </div>
+              </div>
+
+              {filteredRekapNamaList.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-8 text-center text-gray-400 bg-white rounded-2xl border border-gray-100 shadow-xs">
+                  <User size={40} className="mb-2 opacity-30" />
+                  <p className="text-sm font-serif">Tidak ada data pemesan yang sesuai filter.</p>
+                </div>
+              ) : (
+                filteredRekapNamaList.map(entry => {
+                  const isDelivered = entry.isAllSelesai;
+                  return (
+                    <div 
+                      key={entry.customerName}
+                      className={`bg-white rounded-2xl p-4 border transition-all shadow-xs ${
+                        isDelivered 
+                          ? 'border-emerald-200/80 bg-linear-to-b from-white to-emerald-50/20' 
+                          : 'border-amber-200 bg-linear-to-b from-white to-amber-50/25'
+                      }`}
+                    >
+                      {/* Customer Card Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-gray-100 mb-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-serif font-bold text-base text-gray-800 leading-tight">
+                              {entry.customerName}
+                            </h4>
+                            {/* Status Badge */}
+                            {isDelivered ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                <CheckCircle2 size={11} className="text-emerald-700" />
+                                <span>Selesai</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
+                                <Clock size={11} className="text-amber-700" />
+                                <span>Belum Diantar (Proses)</span>
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[11px] bg-orange-50 text-[#C04000] font-semibold px-2 py-0.5 rounded-md border border-[#C04000]/20 flex items-center gap-0.5">
+                              <MapPin size={10} />
+                              <span>{entry.customerLocation}</span>
+                            </span>
+                            <span className="text-[10px] text-gray-400">
+                              {entry.totalOrders > 1 ? `${entry.totalOrders} Transaksi • ` : ''}{entry.latestDate}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Tombol Status: PROSES & SELESAI */}
+                        <div className="flex items-center gap-1.5 shrink-0 pt-1 sm:pt-0">
+                          <button
+                            onClick={() => handleUpdateCustomerOrdersStatus(entry.customerName, 'PROSES')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95 ${
+                              !isDelivered
+                                ? 'bg-amber-500 text-white shadow-xs ring-2 ring-amber-300'
+                                : 'bg-gray-100 text-gray-600 hover:bg-amber-50 hover:text-amber-800 border border-gray-200'
+                            }`}
+                            title="Tandai Belum Diantar / Sedang Diproses"
+                          >
+                            <Clock size={13} />
+                            <span>Proses</span>
+                          </button>
+                          <button
+                            onClick={() => handleUpdateCustomerOrdersStatus(entry.customerName, 'SELESAI')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95 ${
+                              isDelivered
+                                ? 'bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-300'
+                                : 'bg-gray-100 text-gray-600 hover:bg-emerald-50 hover:text-emerald-800 border border-gray-200'
+                            }`}
+                            title="Tandai Sudah Selesai Diantar"
+                          >
+                            <CheckCircle2 size={13} />
+                            <span>Selesai</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Items Rincian Pesanan Pelanggan */}
+                      <div className="space-y-1.5">
+                        {Object.entries(entry.items).map(([itemKey, qty]) => (
+                          <div 
+                            key={itemKey} 
+                            className="flex justify-between items-center text-xs py-1.5 px-2.5 rounded-xl bg-[#FDFBF7] border border-[#E0DCCF]/40"
+                          >
+                            <span className="text-gray-700 font-medium flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#8A9A5B]" />
+                              {itemKey}
+                            </span>
+                            <span className="font-bold text-gray-800 bg-white px-2 py-0.5 rounded-md border border-gray-200 shadow-2xs">
+                              {qty} Pcs
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Footer Total Item Pesanan Pelanggan */}
+                      <div className="mt-2.5 pt-2 border-t border-dashed border-gray-200 flex justify-between items-center text-xs">
+                        <span className="text-gray-500 font-medium">Total Pesanan:</span>
+                        <span className="font-bold text-[#8A9A5B] bg-[#F5F1E9] px-2.5 py-0.5 rounded-lg border border-[#8A9A5B]/20">
+                          {entry.totalItems} Item
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           ) : rekapFilter === 'WILAYAH' ? (
             /* Rekap Berdasarkan Wilayah */
@@ -1483,6 +1867,48 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+
+                {/* Status Antar & Tombol Cepat di Riwayat */}
+                <div className="mt-3 pt-2.5 border-t border-gray-100 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    {order.status === 'SELESAI' ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        <CheckCircle2 size={11} className="text-emerald-700" />
+                        <span>Selesai</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                        <Clock size={11} className="text-amber-700" />
+                        <span>Belum Diantar (Proses)</span>
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleUpdateOrderStatus(order.id, 'PROSES')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                        order.status !== 'SELESAI'
+                          ? 'bg-amber-500 text-white shadow-2xs'
+                          : 'bg-gray-100 text-gray-500 hover:bg-amber-50 hover:text-amber-700'
+                      }`}
+                      title="Set status Proses (Belum Diantar)"
+                    >
+                      Proses
+                    </button>
+                    <button
+                      onClick={() => handleUpdateOrderStatus(order.id, 'SELESAI')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                        order.status === 'SELESAI'
+                          ? 'bg-emerald-600 text-white shadow-2xs'
+                          : 'bg-gray-100 text-gray-500 hover:bg-emerald-50 hover:text-emerald-700'
+                      }`}
+                      title="Set status Selesai"
+                    >
+                      Selesai
+                    </button>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -1583,26 +2009,50 @@ export default function App() {
             </div>
             
             <div className="p-5 sm:p-6">
-              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2.5">Pilih Ukuran</h4>
+              <div className="flex items-center justify-between mb-2.5">
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                  <span>Pilih Ukuran</span>
+                  <span className="text-red-500 font-bold">*</span>
+                </h4>
+                {!selectedSize ? (
+                  <span className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                    Wajib dipilih
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-semibold text-[#8A9A5B] bg-[#8A9A5B]/10 px-2 py-0.5 rounded-full">
+                    ✓ {selectedSize}
+                  </span>
+                )}
+              </div>
+
               <div className="flex flex-wrap gap-2 mb-5">
-                {(CATEGORY_CONFIG[selectedProduct.category]?.sizes || ["1 Pcs"]).map(size => (
-                  <button
-                    key={size}
-                    onClick={() => setSelectedSize(size)}
-                    className={`px-4 py-2 border rounded-full font-medium transition-all text-xs sm:text-sm cursor-pointer ${
-                      selectedSize === size 
-                        ? 'border-[#8A9A5B] bg-[#8A9A5B] text-white shadow-xs' 
-                        : 'border-[#E0DCCF] text-[#4E4E4E] hover:bg-[#F5F1E9]'
-                    }`}
-                  >
-                    {size}
-                  </button>
-                ))}
+                {(() => {
+                  const customSize = itemCustomSizes[selectedProduct.name];
+                  const defaultSizes = CATEGORY_CONFIG[selectedProduct.category]?.sizes || ["1 Pcs"];
+                  const sizesToRender = customSize && !defaultSizes.includes(customSize)
+                    ? [customSize, ...defaultSizes]
+                    : defaultSizes;
+                  return sizesToRender.map(size => (
+                    <button
+                      key={size}
+                      type="button"
+                      onClick={() => setSelectedSize(size)}
+                      className={`px-4 py-2 border rounded-full font-medium transition-all text-xs sm:text-sm cursor-pointer ${
+                        selectedSize === size 
+                          ? 'border-[#8A9A5B] bg-[#8A9A5B] text-white shadow-xs font-bold ring-2 ring-[#8A9A5B]/30' 
+                          : 'border-[#E0DCCF] text-[#4E4E4E] hover:bg-[#F5F1E9] bg-white'
+                      }`}
+                    >
+                      {size}
+                    </button>
+                  ));
+                })()}
               </div>
 
               <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2.5">Jumlah</h4>
               <div className="flex items-center gap-5 mb-6">
                 <button 
+                  type="button"
                   onClick={() => setSelectedQty(Math.max(1, selectedQty - 1))}
                   className="w-11 h-11 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-600 active:bg-gray-200 transition-colors cursor-pointer"
                 >
@@ -1610,6 +2060,7 @@ export default function App() {
                 </button>
                 <span className="text-2xl sm:text-3xl font-bold w-12 text-center text-gray-800">{selectedQty}</span>
                 <button 
+                  type="button"
                   onClick={() => setSelectedQty(selectedQty + 1)}
                   className="w-11 h-11 rounded-2xl bg-[#F5F1E9] flex items-center justify-center text-[#8A9A5B] active:bg-[#EAE7DC] transition-colors cursor-pointer"
                 >
@@ -1618,10 +2069,16 @@ export default function App() {
               </div>
 
               <button 
+                type="button"
                 onClick={handleAddToCart}
-                className="w-full bg-[#C04000] hover:bg-[#a63700] text-white font-bold text-base py-3.5 rounded-2xl shadow-lg shadow-orange-900/20 active:scale-95 transition-all cursor-pointer"
+                disabled={!selectedSize}
+                className={`w-full font-bold text-base py-3.5 rounded-2xl transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                  !selectedSize
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'
+                    : 'bg-[#C04000] hover:bg-[#a63700] text-white shadow-lg shadow-orange-900/20 active:scale-95'
+                }`}
               >
-                Tambah ke Pesanan
+                <span>{selectedSize ? `Tambah ke Pesanan (${selectedSize})` : 'Pilih Ukuran Terlebih Dahulu'}</span>
               </button>
             </div>
           </div>
@@ -1673,6 +2130,56 @@ export default function App() {
                   placeholder="Ketik nama menu..."
                   className="w-full px-3.5 py-2.5 rounded-xl border border-[#E0DCCF] focus:outline-none focus:border-[#8A9A5B] bg-[#FDFBF7] text-sm font-semibold text-gray-800"
                 />
+              </div>
+
+              {/* Kolom Ukuran (Opsional) */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[11px] uppercase tracking-wider text-gray-500 font-bold">
+                    Ukuran
+                  </label>
+                  <span className="text-[10px] text-gray-500 font-medium bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200">
+                    Opsional
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={itemToEdit.size || ''}
+                  onChange={(e) => setItemToEdit({ ...itemToEdit, size: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveEditItem();
+                  }}
+                  placeholder="Contoh: Sedang, Jumbo, Kotak, 500 gr..."
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#E0DCCF] focus:outline-none focus:border-[#8A9A5B] bg-[#FDFBF7] text-sm font-semibold text-gray-800"
+                />
+                <div className="mt-2">
+                  <span className="text-[10px] text-gray-400 block mb-1 font-medium">Pilihan Cepat Ukuran:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(CATEGORY_CONFIG[itemToEdit.category]?.sizes || []).map(sz => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => setItemToEdit({ ...itemToEdit, size: itemToEdit.size === sz ? '' : sz })}
+                        className={`text-[11px] px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                          itemToEdit.size === sz
+                            ? 'bg-[#8A9A5B] text-white border-[#8A9A5B] font-bold shadow-xs'
+                            : 'bg-[#FDFBF7] text-gray-600 border-[#E0DCCF] hover:bg-[#F5F1E9] font-medium'
+                        }`}
+                      >
+                        {sz}
+                      </button>
+                    ))}
+                    {itemToEdit.size && (
+                      <button
+                        type="button"
+                        onClick={() => setItemToEdit({ ...itemToEdit, size: '' })}
+                        className="text-[10px] text-red-500 hover:underline px-1 self-center cursor-pointer font-medium"
+                      >
+                        Kosongkan
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="flex gap-2 pt-2">
@@ -1765,6 +2272,56 @@ export default function App() {
                   autoFocus
                   className="w-full px-3.5 py-2.5 rounded-xl border border-[#E0DCCF] focus:outline-none focus:border-[#8A9A5B] bg-[#FDFBF7] text-sm font-semibold text-gray-800"
                 />
+              </div>
+
+              {/* Kolom Ukuran Menu Baru (Opsional) */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[11px] uppercase tracking-wider text-gray-500 font-bold">
+                    Ukuran
+                  </label>
+                  <span className="text-[10px] text-gray-500 font-medium bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200">
+                    Opsional
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={newMenuSize}
+                  onChange={(e) => setNewMenuSize(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveNewMenu();
+                  }}
+                  placeholder="Contoh: Sedang, Jumbo, Kotak, 500 gr..."
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#E0DCCF] focus:outline-none focus:border-[#8A9A5B] bg-[#FDFBF7] text-sm font-semibold text-gray-800"
+                />
+                <div className="mt-2">
+                  <span className="text-[10px] text-gray-400 block mb-1 font-medium">Pilihan Cepat Ukuran:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(CATEGORY_CONFIG[targetAddCategory]?.sizes || []).map(sz => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => setNewMenuSize(newMenuSize === sz ? '' : sz)}
+                        className={`text-[11px] px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+                          newMenuSize === sz
+                            ? 'bg-[#8A9A5B] text-white border-[#8A9A5B] font-bold shadow-xs'
+                            : 'bg-[#FDFBF7] text-gray-600 border-[#E0DCCF] hover:bg-[#F5F1E9] font-medium'
+                        }`}
+                      >
+                        {sz}
+                      </button>
+                    ))}
+                    {newMenuSize && (
+                      <button
+                        type="button"
+                        onClick={() => setNewMenuSize('')}
+                        className="text-[10px] text-red-500 hover:underline px-1 self-center cursor-pointer font-medium"
+                      >
+                        Kosongkan
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <button
