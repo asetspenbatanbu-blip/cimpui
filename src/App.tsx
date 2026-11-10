@@ -1343,7 +1343,14 @@ export default function App() {
       });
     });
 
-    const rekapNamaList = Object.values(rekapNamaMap).sort((a, b) => a.customerName.localeCompare(b.customerName));
+    const rekapNamaList = Object.values(rekapNamaMap).sort((a, b) => {
+      const locA = (a.customerLocation || 'Batulicin').toLowerCase();
+      const locB = (b.customerLocation || 'Batulicin').toLowerCase();
+      if (locA !== locB) {
+        return locA.localeCompare(locB);
+      }
+      return a.customerName.localeCompare(b.customerName);
+    });
     const totalProcessingCount = activeHistory.filter(o => o.status !== 'SELESAI').length;
     const totalCompletedCount = activeHistory.filter(o => o.status === 'SELESAI').length;
 
@@ -1355,6 +1362,18 @@ export default function App() {
       if (rekapNamaStatusFilter === 'SELESAI') return entry.isAllSelesai;
       return true;
     });
+
+    // Pengelompokan Rekap per Nama berdasarkan Wilayah
+    const rekapNamaGroupedByWilayah = filteredRekapNamaList.reduce((acc, entry) => {
+      const loc = entry.customerLocation || "Batulicin";
+      if (!acc[loc]) {
+        acc[loc] = [];
+      }
+      acc[loc].push(entry);
+      return acc;
+    }, {} as Record<string, typeof filteredRekapNamaList>);
+
+    const sortedWilayahNames = Object.keys(rekapNamaGroupedByWilayah).sort((a, b) => a.localeCompare(b));
 
     const categoriesToDisplay = rekapFilter === 'ALL' || rekapFilter === 'WILAYAH' || rekapFilter === 'NAMA'
       ? CATEGORY_ORDER 
@@ -1556,101 +1575,150 @@ export default function App() {
                   <p className="text-sm font-serif">Tidak ada data pemesan yang sesuai filter.</p>
                 </div>
               ) : (
-                filteredRekapNamaList.map(entry => {
-                  const isDelivered = entry.isAllSelesai;
+                sortedWilayahNames.map(wilayah => {
+                  const entries = rekapNamaGroupedByWilayah[wilayah];
+                  const wilayahTotalItems = entries.reduce((sum, e) => sum + e.totalItems, 0);
+                  const wilayahProcessingCount = entries.filter(e => !e.isAllSelesai).length;
+
                   return (
-                    <div 
-                      key={entry.customerName}
-                      className={`bg-white rounded-2xl p-4 border transition-all shadow-xs ${
-                        isDelivered 
-                          ? 'border-emerald-200/80 bg-linear-to-b from-white to-emerald-50/20' 
-                          : 'border-amber-200 bg-linear-to-b from-white to-amber-50/25'
-                      }`}
-                    >
-                      {/* Customer Card Header */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-gray-100 mb-3">
-                        <div>
+                    <div key={wilayah} className="space-y-3 pt-1">
+                      {/* Section Header Wilayah */}
+                      <div className="flex items-center justify-between bg-white border border-[#E0DCCF] px-3.5 py-2.5 rounded-2xl shadow-xs">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-xl bg-orange-100 text-[#C04000] flex items-center justify-center font-bold">
+                            <MapPin size={15} />
+                          </div>
                           <div className="flex items-center gap-2">
-                            <h4 className="font-serif font-bold text-base text-gray-800 leading-tight">
-                              {entry.customerName}
-                            </h4>
-                            {/* Status Badge */}
-                            {isDelivered ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                <CheckCircle2 size={11} className="text-emerald-700" />
-                                <span>Selesai</span>
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
-                                <Clock size={11} className="text-amber-700" />
-                                <span>Belum Diantar (Proses)</span>
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[11px] bg-orange-50 text-[#C04000] font-semibold px-2 py-0.5 rounded-md border border-[#C04000]/20 flex items-center gap-0.5">
-                              <MapPin size={10} />
-                              <span>{entry.customerLocation}</span>
-                            </span>
-                            <span className="text-[10px] text-gray-400">
-                              {entry.totalOrders > 1 ? `${entry.totalOrders} Transaksi • ` : ''}{entry.latestDate}
+                            <h3 className="font-serif font-bold text-sm text-gray-800">
+                              Wilayah: {wilayah}
+                            </h3>
+                            <span className="text-[11px] font-semibold text-gray-500 bg-[#F5F1E9] px-2 py-0.5 rounded-md border border-[#E0DCCF]/60">
+                              {entries.length} Pemesan
                             </span>
                           </div>
                         </div>
 
-                        {/* Tombol Status: PROSES & SELESAI */}
-                        <div className="flex items-center gap-1.5 shrink-0 pt-1 sm:pt-0">
-                          <button
-                            onClick={() => handleUpdateCustomerOrdersStatus(entry.customerName, 'PROSES')}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95 ${
-                              !isDelivered
-                                ? 'bg-amber-500 text-white shadow-xs ring-2 ring-amber-300'
-                                : 'bg-gray-100 text-gray-600 hover:bg-amber-50 hover:text-amber-800 border border-gray-200'
-                            }`}
-                            title="Tandai Belum Diantar / Sedang Diproses"
-                          >
-                            <Clock size={13} />
-                            <span>Proses</span>
-                          </button>
-                          <button
-                            onClick={() => handleUpdateCustomerOrdersStatus(entry.customerName, 'SELESAI')}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95 ${
-                              isDelivered
-                                ? 'bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-300'
-                                : 'bg-gray-100 text-gray-600 hover:bg-emerald-50 hover:text-emerald-800 border border-gray-200'
-                            }`}
-                            title="Tandai Sudah Selesai Diantar"
-                          >
-                            <CheckCircle2 size={13} />
-                            <span>Selesai</span>
-                          </button>
+                        <div className="flex items-center gap-1.5">
+                          {wilayahProcessingCount > 0 ? (
+                            <span className="text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <Clock size={10} />
+                              <span>{wilayahProcessingCount} Proses</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <CheckCircle2 size={10} />
+                              <span>Semua Selesai</span>
+                            </span>
+                          )}
+                          <span className="text-xs font-bold text-white bg-[#8A9A5B] px-2.5 py-1 rounded-xl shadow-2xs">
+                            {wilayahTotalItems} Item
+                          </span>
                         </div>
                       </div>
 
-                      {/* Items Rincian Pesanan Pelanggan */}
-                      <div className="space-y-1.5">
-                        {Object.entries(entry.items).map(([itemKey, qty]) => (
-                          <div 
-                            key={itemKey} 
-                            className="flex justify-between items-center text-xs py-1.5 px-2.5 rounded-xl bg-[#FDFBF7] border border-[#E0DCCF]/40"
-                          >
-                            <span className="text-gray-700 font-medium flex items-center gap-1.5">
-                              <span className="w-1.5 h-1.5 rounded-full bg-[#8A9A5B]" />
-                              {itemKey}
-                            </span>
-                            <span className="font-bold text-gray-800 bg-white px-2 py-0.5 rounded-md border border-gray-200 shadow-2xs">
-                              {qty} Pcs
-                            </span>
-                          </div>
-                        ))}
-                      </div>
+                      {/* Daftar Pemesan di Wilayah Ini */}
+                      <div className="space-y-3 pl-1 sm:pl-2">
+                        {entries.map(entry => {
+                          const isDelivered = entry.isAllSelesai;
+                          return (
+                            <div 
+                              key={entry.customerName}
+                              className={`bg-white rounded-2xl p-4 border transition-all shadow-xs ${
+                                isDelivered 
+                                  ? 'border-emerald-200/80 bg-linear-to-b from-white to-emerald-50/20' 
+                                  : 'border-amber-200 bg-linear-to-b from-white to-amber-50/25'
+                              }`}
+                            >
+                              {/* Customer Card Header */}
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-gray-100 mb-3">
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <h4 className="font-serif font-bold text-base text-gray-800 leading-tight">
+                                      {entry.customerName}
+                                    </h4>
+                                    {/* Status Badge */}
+                                    {isDelivered ? (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                        <CheckCircle2 size={11} className="text-emerald-700" />
+                                        <span>Selesai</span>
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
+                                        <Clock size={11} className="text-amber-700" />
+                                        <span>Belum Diantar (Proses)</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <span className="text-[11px] bg-orange-50 text-[#C04000] font-semibold px-2 py-0.5 rounded-md border border-[#C04000]/20 flex items-center gap-0.5">
+                                      <MapPin size={10} />
+                                      <span>{entry.customerLocation}</span>
+                                    </span>
+                                    <span className="text-[10px] text-gray-400">
+                                      {entry.totalOrders > 1 ? `${entry.totalOrders} Transaksi • ` : ''}{entry.latestDate}
+                                    </span>
+                                  </div>
+                                </div>
 
-                      {/* Footer Total Item Pesanan Pelanggan */}
-                      <div className="mt-2.5 pt-2 border-t border-dashed border-gray-200 flex justify-between items-center text-xs">
-                        <span className="text-gray-500 font-medium">Total Pesanan:</span>
-                        <span className="font-bold text-[#8A9A5B] bg-[#F5F1E9] px-2.5 py-0.5 rounded-lg border border-[#8A9A5B]/20">
-                          {entry.totalItems} Item
-                        </span>
+                                {/* Tombol Status: PROSES & SELESAI */}
+                                <div className="flex items-center gap-1.5 shrink-0 pt-1 sm:pt-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateCustomerOrdersStatus(entry.customerName, 'PROSES')}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95 ${
+                                      !isDelivered
+                                        ? 'bg-amber-500 text-white shadow-xs ring-2 ring-amber-300'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-amber-50 hover:text-amber-800 border border-gray-200'
+                                    }`}
+                                    title="Tandai Belum Diantar / Sedang Diproses"
+                                  >
+                                    <Clock size={13} />
+                                    <span>Proses</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateCustomerOrdersStatus(entry.customerName, 'SELESAI')}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95 ${
+                                      isDelivered
+                                        ? 'bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-300'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-emerald-50 hover:text-emerald-800 border border-gray-200'
+                                    }`}
+                                    title="Tandai Sudah Selesai Diantar"
+                                  >
+                                    <CheckCircle2 size={13} />
+                                    <span>Selesai</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Items Rincian Pesanan Pelanggan */}
+                              <div className="space-y-1.5">
+                                {Object.entries(entry.items).map(([itemKey, qty]) => (
+                                  <div 
+                                    key={itemKey} 
+                                    className="flex justify-between items-center text-xs py-1.5 px-2.5 rounded-xl bg-[#FDFBF7] border border-[#E0DCCF]/40"
+                                  >
+                                    <span className="text-gray-700 font-medium flex items-center gap-1.5">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-[#8A9A5B]" />
+                                      {itemKey}
+                                    </span>
+                                    <span className="font-bold text-gray-800 bg-white px-2 py-0.5 rounded-md border border-gray-200 shadow-2xs">
+                                      {qty} Pcs
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Footer Total Item Pesanan Pelanggan */}
+                              <div className="mt-2.5 pt-2 border-t border-dashed border-gray-200 flex justify-between items-center text-xs">
+                                <span className="text-gray-500 font-medium">Total Pesanan:</span>
+                                <span className="font-bold text-[#8A9A5B] bg-[#F5F1E9] px-2.5 py-0.5 rounded-lg border border-[#8A9A5B]/20">
+                                  {entry.totalItems} Item
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );
